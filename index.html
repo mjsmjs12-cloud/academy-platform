@@ -762,7 +762,9 @@ async function cloudPush(){
   if (!S.cloud || !S.cloud.f) return false;
   const remote = await cloudGet();
   const rv = remote ? (remote._v || 0) : 0;
-  if (remote && rv > cloudV() && !CLOUD_DIRTY) { cloudApply(remote); return true; }
+  // الخادم أحدث: نطبّق نسخته ولا نكتب فوقها بنسخة قديمة، حتى لو كان عندنا تعديل بسيط لم يُرفع
+  // (التعديل المحلي يبقى في «استعادة النسخة السابقة»)
+  if (remote && rv > cloudV()) { cloudApply(remote); return true; }
   const v = Math.max(rv, cloudV()) + 1;
   S._v = v;
   const body = JSON.stringify(S);
