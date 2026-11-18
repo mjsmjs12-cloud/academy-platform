@@ -484,6 +484,8 @@ async function bootApp(){
   const r = await loadState();
   S = r.state;
   if (r.legacy) persistNow(JSON.stringify(S)); // ترحيل مرة واحدة إلى IndexedDB دون تغيير توقيت المزامنة
+  const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
+  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); }
   READY = true;
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
   applyTheme(); renderHome(); driveBoot();
@@ -519,7 +521,7 @@ function persistNow(json){
 function keepPrev(json){ SAVE_CHAIN = SAVE_CHAIN.then(() => idbPut('state_prev', json)).then(() => { UI.hasPrev = true; }).catch(() => {}); }
 function save(){
   if (!READY) return; // لا حفظ قبل اكتمال التحميل حتى لا تُستبدل البيانات الحقيقية بالافتراضية
-  persistNow(JSON.stringify(S)); setLocalAt(Date.now()); driveSoon();
+  persistNow(JSON.stringify(S)); setLocalAt(Date.now()); driveSoon(); cloudSoon();
 }
 // ===== المزامنة عبر Google Drive =====
 // كل بيانات البرنامج (القصص والملفات والإعدادات والتقدم) تُحفظ في ملف واحد داخل
@@ -668,10 +670,41 @@ async function driveListFolder(){
 // تنزيل محتوى ملف من Drive كـ Blob
 async function driveDownload(id){ return (await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).blob(); }
 
+// ===== الرابط السحابي: بيانات الأكاديمية على خادم Vercel، ليدخل الطفل من أي جهاز عبر الرابط =====
+const CLOUD_API = '/api/family', CLOUD_MAX = 900 * 1024;
+let CLOUD_TIMER = null;
+const cloudLink = f => location.origin + location.pathname + '?f=' + f;
+function cloudSoon(){
+  if (!S.cloud || !S.cloud.f) return;
+  clearTimeout(CLOUD_TIMER);
+  CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => {}), 1500);
+}
+async function cloudPush(){
+  if (!S.cloud || !S.cloud.f) return false;
+  const body = JSON.stringify(S);
+  if (body.length > CLOUD_MAX) { toast('حجم البيانات أكبر من الحد المسموح للرابط'); return false; }
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body});
+  if (!r.ok) throw new Error('cloud ' + r.status);
+  return true;
+}
+// إن كان في الرابط معرّف عائلة تُحمَّل البيانات منه؛ يُرجع البيانات أو false
+async function cloudPullFromLink(){
+  const f = new URLSearchParams(location.search).get('f');
+  if (!f || !/^[a-f0-9]{32}$/.test(f)) return false;
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(f));
+  if (!r.ok) { toast(r.status === 404 ? 'لم تُرفع بيانات لهذا الرابط بعد' : 'تعذّر الاتصال بالخادم'); return false; }
+  const d = migrate(JSON.parse(await r.text()));
+  d.cloud = {f};
+  return d;
+}
+function renderCloudSettings(){
+  const f = S.cloud && S.cloud.f;
+  return `<div class="card" style="border-right:6px solid #2f7fd8"><h3>🔗 رابط الدخول من أي جهاز</h3>${f ? `<p class="muted">الرابط جاهز. تُحفظ بيانات الأكاديمية على الخادم، ويفتح الطفل الرابط من أي جهاز.</p><input id="cloudLink" readonly value="${esc(cloudLink(f))}" style="width:100%;direction:ltr"><div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="cloudCopy">📋 نسخ الرابط</button><button class="btn sm ghost" data-act="cloudSync">🔄 رفع الآن</button><button class="btn sm danger" data-act="cloudStop">إيقاف الرابط</button></div>` : `<p class="muted">أنشئي رابطاً سرياً لتدخل الطفلة من جهاز آخر. لا تشاركيه إلا معهم.</p><button class="btn sm ok" data-act="cloudCreate">إنشاء الرابط</button>`}</div>`;
+}
 // قسم ربط Google Drive داخل صفحة الإعدادات
 function renderDriveSettings(){
   const saved = JSON.parse(localStorage.getItem(DRIVE_KEY) || 'null');
-  return `<label class="f">☁️ ربط Google Drive (معرّف العميل Client ID)</label>
+  return renderCloudSettings() + `<label class="f">☁️ ربط Google Drive (معرّف العميل Client ID)</label>
     <input id="gdrive" value="${saved ? esc(saved.clientId) : ''}" placeholder="xxxx.apps.googleusercontent.com">
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
       <button class="btn sm ghost" data-act="driveNow">🔄 مزامنة الآن</button>
@@ -3233,7 +3266,7 @@ function guardDenied(act, d){
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','cloudCreate','cloudSync','cloudStop']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 function agentsHtml(){
@@ -3377,6 +3410,7 @@ function last15Card(rs){
   return `<div class="card"><h3>📈 آخر ١٥ سؤالاً</h3><div class="tbl-wrap"><table><tr><th>المادة</th><th>عدد</th><th>استقلالية</th><th>مساعدة</th><th>خطأ</th></tr>${rows}</table></div></div>`;
 }
 function reportHTML(cid){
+  if (!CH(cid)) return '<p class="muted center">اختاري طفلة لعرض التقرير</p>'; // حماية من معرّف غير موجود
   const c = CH(cid), p = P(cid), rs = allResults(cid), now = Date.now(), today = todayStr();
   const tSes = p.sessions.filter(s => todayStr(new Date(s.start)) === today), tSt = stat(tSes.flatMap(s => s.results || []));
   const tSkills = new Set(tSes.flatMap(s => (s.results || []).map(r => r.s))).size;
@@ -4660,6 +4694,22 @@ const ACT = {
     if (!(await confirmBox('استعادة النسخة السابقة؟', 'ستُستبدل البيانات الحالية بالنسخة التي قبل آخر مزامنة.'))) return;
     S = migrate(JSON.parse(prev)); save(); applyTheme(); renderParent(); toast('تمت الاستعادة');
   },
+  cloudCreate: async () => {
+    const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
+    S.cloud = {f: Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')};
+    save();
+    try { await cloudPush(); toast('تم إنشاء الرابط ورفع البيانات ✅'); }
+    catch (e) { toast('تعذّر الرفع: تأكدي من ربط تخزين KV بالمشروع في Vercel'); }
+    renderParent();
+  },
+  cloudSync: async () => { try { await cloudPush(); toast('تم الرفع ✅'); } catch (e) { toast('تعذّر الرفع، تأكدي من الاتصال'); } },
+  cloudCopy: () => {
+    const el = $('#cloudLink'); if (!el) return;
+    el.select();
+    if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(() => toast('تم نسخ الرابط'), () => toast('انسخي الرابط يدوياً'));
+    else { document.execCommand('copy'); toast('تم نسخ الرابط'); }
+  },
+  cloudStop: () => { S.cloud = null; save(); toast('أُوقف الرابط على هذا الجهاز'); renderParent(); },
   driveNow: async () => {
     try { await driveAuth('interactive'); await driveSync(); toast('تمت المزامنة ☁️'); }
     catch (e) { toast('تعذّرت المزامنة: ' + (e.message || e)); }

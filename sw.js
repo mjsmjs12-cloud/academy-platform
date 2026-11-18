@@ -19,6 +19,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  // واجهات الخادم تُطلب دائماً من الشبكة حتى لا تُقرأ بيانات قديمة من الذاكرة
+  if (new URL(req.url).pathname.startsWith('/api/')) return;
   const isPage = req.mode === 'navigate' || /\.html(\?|$)/.test(req.url);
   if (isPage) {
     e.respondWith(fetch(req).then(res => {
