@@ -92,6 +92,9 @@ h1,h2,h3,h4{margin:.35em 0}
 .egrid{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;font-size:30px;max-width:360px;margin:0 auto}
 .egrid.sm{font-size:18px;max-width:120px}
 .egrid .x{opacity:.35;text-decoration:line-through}
+/* الضغط على الرمز يضع علامة ✖ فوقه ليعرف الطفل ما عدّه، والضغط مرة أخرى يلغيها */
+.egrid span{position:relative;cursor:pointer;display:inline-block;user-select:none;-webkit-user-select:none}
+.egrid span.mk::after{content:'✖';position:absolute;inset:0;display:grid;place-items:center;color:#e35d5d;font-size:.75em;font-weight:900;background:rgba(255,255,255,.55);border-radius:50%;text-shadow:0 0 3px #fff}
 .expr{font-size:42px;font-weight:800;font-family:Arial,sans-serif}
 .blank{display:inline-block;min-width:54px;border-bottom:4px dashed var(--pri);color:var(--pri)}
 .seq{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
@@ -5945,6 +5948,8 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-act]
   if (denied === 'expired') { toast('انتهت وكالتك، أعيدي الدخول'); UI.parentOk = false; return go(renderHome); }
   if (denied) return toast(denied);
   fn(b.dataset, b); updateEnvelope(); });
+// علامة ✖ على الرموز أثناء العدّ: ضغطة تضع العلامة وضغطة أخرى تزيلها
+document.addEventListener('click', e => { const sp = e.target.closest('.egrid span'); if (sp && $('#app').contains(sp)) sp.classList.toggle('mk'); });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.change && CHANGE[t.dataset.change]) CHANGE[t.dataset.change](t); });
 
 view().innerHTML = '<p class="center muted">جارٍ تحميل البيانات…</p>';
