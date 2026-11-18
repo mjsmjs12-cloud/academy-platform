@@ -1618,12 +1618,13 @@ function kidSecHtml(c, sec){
         <div><label class="f">العمر</label><input type="number" id="kage_${id}" min="3" max="18" value="${c.age || ''}"></div>
         <div><label class="f">لون البنت</label><input type="color" id="kc_${id}" value="${esc(c.color)}" style="height:46px"></div>
         <div><label class="f">🔑 رمز دخول الطفلة (4 أرقام أو أكثر)</label><input type="password" inputmode="numeric" id="kcode_${id}" placeholder="${c.code ? 'تم تعيين رمز، اكتبي رمزاً جديداً للتغيير' : 'اكتبي الرمز'}"></div>
-        <div><label class="f">المستوى</label><select id="klev_${id}" data-change="levelPick">${LEVEL_LABELS5.map((l, i) => `<option value="${i + 1}" ${levelRaw(c) === i + 1 ? 'selected' : ''}>${l} (حتى ${fmt(LEVEL_MATH[i])})</option>`).join('')}</select></div>
+        <div><label class="f">المستوى</label><select id="klev_${id}" data-change="levelPick">${LEVEL_LABELS5.map((l, i) => { const locked = i + 1 > levelRaw(c) && !levelOpen(c, i + 1); return `<option value="${i + 1}" ${levelRaw(c) === i + 1 ? 'selected' : ''} ${locked ? 'disabled' : ''}>${l} (حتى ${fmt(LEVEL_MATH[i])})${locked ? ' 🔒' : ''}</option>`; }).join('')}</select></div>
         <div><label class="f">مدة الجلسة (دقيقة)</label><select id="km_${id}">${[0, 10, 15, 20, 25, 30, 40, 45].map(v => `<option value="${v}" ${c.minutes === v ? 'selected' : ''}>${v ? v + ' دقيقة' : 'مفتوح (بدون وقت)'}</option>`).join('')}</select></div>
       </div>
       <div style="margin-top:8px">
         <label class="chk"><input type="checkbox" id="kstrict_${id}" ${c.strictOrder ? 'checked' : ''}> 🔒 منع التجاوز حتى تُتقن المهارة السابقة</label>
         <label class="chk"><input type="checkbox" id="khn_${id}" ${c.hideName ? 'checked' : ''}> 🙈 إخفاء الاسم من شاشات الطفلة</label>
+        <label class="chk"><input type="checkbox" id="kchat_${id}" ${c.chatOff ? '' : 'checked'}> 💬 السماح بالمراسلة (إلغاؤه يمنعها من الإرسال والاستقبال)</label>
         
       </div>
       <div class="row" style="margin-top:12px">${S.children.length > 1 ? `<button class="btn sm danger" data-act="delKid" data-id="${id}">حذف الملف</button>` : ''}</div>${save}</div>`;
@@ -2142,6 +2143,7 @@ async function chatPrune(){
 const roomMsgs = room => chatState().msgs.filter(m => m.room === room).sort((a, b) => a.at - b.at);
 // عدد الرسائل غير المقروءة للطفلة: من المجموعة، ومن رسائلها الخاصة، ومن التعميمات
 function chatUnread(cid){
+  const me = CH(cid); if (!me || me.chatOff) return 0;
   const st = chatState(); let n = 0;
   const rooms = ['group', ...S.children.filter(k => k.id !== cid).map(k => dmRoom(cid, k.id))];
   for (const r of rooms) { const since = st.seen[seenKey(cid, r)] || 0; n += st.msgs.filter(m => m.room === r && m.from !== cid && m.at > since).length; }
@@ -2153,7 +2155,8 @@ function renderChatPage(id, room){
   const c = CH(id); if (!c) return;
   chatPrune();
   const r = room || 'group'; UI.chatRoom = r;
-  const tabs = [['broadcast', '📢 التعميمات'], ['group', '👥 المجموعة'], ...S.children.filter(k => k.id !== id).map(k => [dmRoom(id, k.id), '💬 ' + kName(k)])];
+  if (c.chatOff) { view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div><div class="card center"><h3>💬 المراسلة متوقفة</h3><p class="muted">أوقف ولي الأمر المراسلة لهذه الحساب.</p></div>`; return; }
+  const tabs = [['broadcast', '📢 التعميمات'], ['group', '👥 المجموعة'], ...S.children.filter(k => k.id !== id && !k.chatOff).map(k => [dmRoom(id, k.id), '💬 ' + kName(k)])];
   const tabHtml = tabs.map(([k, l]) => `<button class="btn sm ${k === r ? '' : 'ghost'}" data-act="chatRoom" data-id="${esc(id)}" data-room="${esc(k)}">${esc(l)}</button>`).join('');
   let body;
   if (r === 'broadcast') {
@@ -2199,7 +2202,7 @@ function renderChild(id){
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
   <div class="muted">اليوم ${plan.day}: ${esc(plan.title)}${due ? ` • ${due} عناصر للمراجعة` : ''}</div></div>
-  <div class="row center" style="margin:8px 0"><button class="btn sm ${UI.kidStats ? '' : 'ghost'}" data-act="kidStats" data-id="${esc(id)}">📊 إحصائيتي</button><button class="btn sm ok" data-act="chat" data-id="${esc(id)}">💬 المراسلة${chatUnread(id) ? ` <span class="pill">${chatUnread(id)}</span>` : ''}</button></div>
+  <div class="row center" style="margin:8px 0"><button class="btn sm ${UI.kidStats ? '' : 'ghost'}" data-act="kidStats" data-id="${esc(id)}">📊 إحصائيتي</button>${c.chatOff ? '' : `<button class="btn sm ok" data-act="chat" data-id="${esc(id)}">💬 المراسلة${chatUnread(id) ? ` <span class="pill">${chatUnread(id)}</span>` : ''}</button>`}</div>
   ${UI.kidStats ? kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')]) : ''}
   <div class="tiles-grid">
     <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
@@ -3964,12 +3967,12 @@ const ACT = {
   chatRoom: d => renderChatPage(d.id, d.room),
   chatSend: d => {
     const t = (($('#chatTxt') || {}).value || '').trim(), c = CH(d.id), room = UI.chatRoom || 'group';
-    if (!t || !c || room === 'broadcast') return;
+    if (!t || !c || c.chatOff || room === 'broadcast') return;
     chatState().msgs.push({id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), room, from: d.id, name: c.name, kind: 'text', text: t.slice(0, 500), at: Date.now()});
     save(); renderChatPage(d.id, room);
   },
   chatRecStart: async d => {
-    if (CHAT_REC) return;
+    if (CHAT_REC || (CH(d.id) || {}).chatOff) return;
     if (!navigator.mediaDevices || !window.MediaRecorder) return toast('التسجيل غير مدعوم في هذا المتصفح');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({audio: true});
@@ -4566,6 +4569,7 @@ const ACT = {
     if (has('kenvoice')) c.enVoice = v('kenvoice');
     if (has('ken')) c.enRoutine = $('#ken_' + c.id).checked;
     if (has('khn')) c.hideName = $('#khn_' + c.id).checked;
+    if (has('kchat')) c.chatOff = !$('#kchat_' + c.id).checked;
     if (has('kcode') && v('kcode').trim()) {
       if (v('kcode').trim().length < 4) toast('رمز الدخول 4 خانات على الأقل، لم يُغيَّر الرمز');
       else { c.code = hashPin(v('kcode').trim()); c.codeSince = Date.now(); }
@@ -4575,7 +4579,12 @@ const ACT = {
     if (has('kma')) c.mathAnswer = v('kma');
     c.mathMax = num('kx', 5, 1000, c.mathMax); c.addMax = num('ka', 2, 1000, c.addMax); c.subMax = num('ks', 2, 1000, c.subMax);
     const oldLevel = levelRaw(c);
-    if (has('klev')) { const nl = +v('klev'); if (nl !== oldLevel) c.levelSince = Date.now(); c.level = nl; }
+    if (has('klev')) {
+      let nl = +v('klev');
+      if (nl > oldLevel && !levelOpen(c, nl)) { const miss = [1, 2, 3, 4].find(i => i < nl && !levelDone(c, i)); toast('لا يُفتح ' + LEVEL_LABELS5[nl - 1] + ' قبل إتقان ' + LEVEL_LABELS5[miss - 1]); nl = oldLevel; }
+      if (nl !== oldLevel) c.levelSince = Date.now();
+      c.level = nl;
+    }
     // الضرب والقسمة: التفعيل (تلقائي/يدوي/متوقف) والمضاريب المختارة
     ['mul', 'div'].forEach(op => {
       if (!has('kop_' + op)) return;
