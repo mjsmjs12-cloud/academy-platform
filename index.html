@@ -17,7 +17,7 @@ html.dark{--bg:#1a1420;--card:#2a2030;--ink:#f3e8f0;--muted:#b9a3b1;--line:#4a3a
 html.dark body{background:var(--bg);color:var(--ink)}
 html.dark input,html.dark select,html.dark textarea{background:#1a1420;color:var(--ink);border-color:#4a3a4a}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;overscroll-behavior-y:contain}
 body{font-family:"Segoe UI",Tahoma,"Noto Sans Arabic","Geeza Pro",Arial,sans-serif;background:var(--bg);color:var(--ink);-webkit-tap-highlight-color:transparent;min-height:100vh}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;font-size:16px;padding:10px;border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);width:100%}
@@ -525,8 +525,10 @@ async function bootApp(){
   const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
   if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setCloudV(S._v || 0); CLOUD_SNAP = cloudSnapshot(); }
   READY = true;
+  scanMessages(); // تسجيل الرسائل الموجودة مسبقاً دون إشعار
+  chatPrune().catch(() => {}); // حذف الأصوات المنتهية (24 ساعة) والنصوص القديمة
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
-  applyTheme(); renderHome(); driveBoot(); startCloudPolling();
+  applyTheme(); if (!restoreSession()) renderHome(); driveBoot(); startCloudPolling();
 }
 function migrate(d){
   const def = defaultState();
@@ -559,7 +561,57 @@ function persistNow(json){
 function keepPrev(json){ SAVE_CHAIN = SAVE_CHAIN.then(() => idbPut('state_prev', json)).then(() => { UI.hasPrev = true; }).catch(() => {}); }
 function save(){
   if (!READY) return; // لا حفظ قبل اكتمال التحميل حتى لا تُستبدل البيانات الحقيقية بالافتراضية
-  persistNow(JSON.stringify(S)); setLocalAt(Date.now()); driveSoon(); cloudSoon();
+  persistNow(JSON.stringify(S)); setLocalAt(Date.now()); driveSoon(); cloudSoon(); scanMessages();
+}
+// ===== إشعار الرسائل الجديدة: شعار منبثق أعلى الشاشة، والضغط عليه يفتح الرسالة =====
+let MSG_SEEN = null; // مفاتيح الرسائل والردود التي عُرفت من قبل، فلا يتكرر الإشعار
+// يقارن الرسائل الحالية بما عُرف سابقاً: رسالة جديدة للمدير/الوكيل، أو رد جديد للطفلة
+function scanMessages(){
+  if (!READY) return;
+  const items = [];
+  (S.inbox || []).forEach(m => {
+    if (m.cid) items.push({key: 'n:' + m.id, m, kind: 'new'});
+    (m.replies || []).forEach((r, i) => items.push({key: 'r:' + m.id + ':' + i, m, kind: 'reply'}));
+  });
+  if (MSG_SEEN === null) { MSG_SEEN = new Set(items.map(x => x.key)); return; } // أول تحميل: لا إشعار للقديم
+  const fresh = items.filter(x => !MSG_SEEN.has(x.key));
+  items.forEach(x => MSG_SEEN.add(x.key));
+  if (!fresh.length) return;
+  if (UI.parentOk) {
+    if (UI.parentRole === 'guardian' && !agentAllows('reports')) return;
+    const n = fresh.filter(x => x.kind === 'new' && !x.m.read && msgVisible(x.m)).pop();
+    if (n) showBanner('📩 رسالة جديدة من ' + (n.m.name || 'طفل'), () => openInboxMsg(n.m.id));
+  } else if (UI.kid) {
+    const r = fresh.filter(x => x.kind === 'reply' && x.m.cid === UI.kid).pop();
+    if (r) showBanner('↩️ وصلك رد على رسالتك', () => { ACT.kmsg({id: UI.kid}); updateEnvelope(); });
+  }
+}
+// الشعار المنبثق: يبقى ثماني ثوانٍ، ويُغلق بزر ✕، والضغط عليه ينفذ الإجراء
+function showBanner(text, onClick){
+  document.querySelectorAll('#msgBanner').forEach(x => x.remove());
+  const el = document.createElement('div');
+  el.id = 'msgBanner';
+  el.style.cssText = 'position:fixed;top:12px;left:12px;right:12px;z-index:10000;background:#fff;border:2px solid #c73f70;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:12px 14px;cursor:pointer;font-weight:bold;color:#333;direction:rtl;text-align:right;display:flex;justify-content:space-between;align-items:center;gap:10px';
+  const t = document.createElement('span'); t.textContent = text;
+  const x = document.createElement('button'); x.textContent = '✕';
+  x.style.cssText = 'border:0;background:none;font-size:18px;cursor:pointer;color:#888';
+  x.onclick = e => { e.stopPropagation(); el.remove(); };
+  el.append(t, x);
+  el.onclick = () => { el.remove(); onClick(); };
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}
+// يفتح تبويب الرسائل ويمرّر إلى الرسالة المطلوبة
+function openInboxMsg(id){
+  UI.ptab = 'inbox'; UI.pMenuOpen = false; UI.focusMsg = id;
+  go(renderParent);
+}
+// بعد رسم تبويب الرسائل: يمرّر إلى بطاقة الرسالة المطلوبة ويبرزها
+function focusMsgCard(){
+  if (!UI.focusMsg) return;
+  const el = document.getElementById('msg_' + UI.focusMsg);
+  UI.focusMsg = null;
+  if (el) { el.scrollIntoView({behavior: 'smooth', block: 'center'}); el.style.outline = '3px solid #c73f70'; }
 }
 // ===== المزامنة عبر Google Drive =====
 // كل بيانات البرنامج (القصص والملفات والإعدادات والتقدم) تُحفظ في ملف واحد داخل
@@ -750,6 +802,7 @@ function cloudApply(d){
     if (UI.parentOk) renderParent();
     else if (UI.kid && !document.querySelector('input:focus, textarea:focus')) renderChild(UI.kid);
     toast('☁️ وصلت تحديثات من الجهاز الآخر');
+    scanMessages(); // رسائل وصلت من الجهاز الآخر
   } catch (e) { console.warn('cloud: bad remote data', e); }
 }
 // سحب دوري: يطبّق الخادم إن كان له إصدار أحدث، ولا يسحب والتعديل المحلي لم يُرفع بعد
@@ -2218,14 +2271,15 @@ function go(fn){
 }
 // زر الظرف في أعلى الشاشة: للطفلة يفتح مراسلتها، ولولي الأمر يفتح صفحة الرسائل
 function updateEnvelope(){
+  saveSession(); // كل تنقل أو إجراء يحدّث الجلسة المحفوظة في هذا التبويب
   const bb = $('#backBtn'); if (bb) bb.hidden = !NAV.length;
   const el = $('#envBtn'); if (!el) return;
   const kid = UI.kid && CH(UI.kid) && !CH(UI.kid).chatOff ? UI.kid : null;
   if (!kid && !UI.parentOk) { el.hidden = true; return; }
   el.hidden = false;
   if (kid) {
-    const n = chatUnread(kid);
-    el.dataset.act = 'chat'; el.dataset.id = kid; el.title = 'المراسلة';
+    const n = kidMsgUnread(kid); // ردود مدير النظام أو ولي الأمر غير المقروءة
+    el.dataset.act = 'kmsg'; el.dataset.id = kid; el.title = 'رسائلي';
     el.innerHTML = '✉️' + (n ? `<span class="env-pill">${n}</span>` : '');
   } else {
     el.dataset.act = 'envParent'; el.dataset.id = ''; el.title = 'الرسائل';
@@ -2351,15 +2405,66 @@ const broadcasts = () => (S.broadcasts = S.broadcasts || []);
 const dmRoom = (a, b) => 'dm:' + [a, b].sort().join('|');
 const seenKey = (cid, room) => cid + '|' + room;
 // حذف الرسائل والتعميمات الأقدم من شهر، مع تفريغ تسجيلاتها الصوتية
+// الصوت على الجهاز يبقى مع الرسالة شهراً، أما نسخته في السحابة فتُحذف بعد 24 ساعة
 async function chatPrune(){
   const cut = Date.now() - CHAT_KEEP_MS, st = chatState();
-  const old = st.msgs.filter(m => m.at < cut);
-  if (!old.length && !broadcasts().some(b => b.at < cut)) return;
+  const old = st.msgs.filter(m => m.at < cut), oldB = broadcasts().filter(b => b.at < cut);
+  if (!old.length && !oldB.length) return;
   for (const m of old) if (m.vk) await idbDel(m.vk).catch(() => {});
+  for (const b of oldB) if (b.vk) await idbDel(b.vk).catch(() => {});
   st.msgs = st.msgs.filter(m => m.at >= cut);
   S.broadcasts = broadcasts().filter(b => b.at >= cut);
   save();
 }
+// ===== الرسائل الصوتية: تُحفظ على الجهاز الذي سجّلها، وتُرفع إلى السحابة ليسمعها الجهاز الآخر =====
+const VOICE_MAX_B64 = 400 * 1024; // نفس الحد في api/family.js
+const blobToB64 = blob => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+const b64ToBlob = (b64, type) => { const bin = atob(b64), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return new Blob([arr], {type: type || 'audio/webm'}); };
+// يرفع الصوت بمفتاح الرسالة (vk)؛ يرجع false إن لم يكن الرابط السحابي مفعّلاً أو تعذّر الرفع
+async function voiceUpload(vk, blob){
+  if (!S.cloud || !S.cloud.f) return false;
+  const d = await blobToB64(blob);
+  if (d.length > VOICE_MAX_B64) return false;
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f) + '&v=' + encodeURIComponent(vk), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({d, t: blob.type})});
+  return r.ok;
+}
+// يجلب الصوت من السحابة إلى هذا الجهاز إذا لم يكن موجوداً محلياً
+async function voiceFetch(vk){
+  if (!S.cloud || !S.cloud.f) return null;
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f) + '&v=' + encodeURIComponent(vk));
+  if (!r.ok) return null;
+  const o = JSON.parse(await r.text());
+  const blob = b64ToBlob(o.d || '', o.t);
+  await idbPut(vk, blob).catch(() => {});
+  return blob;
+}
+// تسجيل رسالة صوتية (للمراسلة والتعميم معاً): يحفظ الصوت ثم يستدعي onSaved(vk)، ويستدعي onChange عند البدء والانتهاء
+async function recordVoice(onSaved, onChange){
+  if (CHAT_REC) return;
+  if (!navigator.mediaDevices || !window.MediaRecorder) return toast('التسجيل غير مدعوم في هذا المتصفح');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({audio: true}); }
+  catch (e) { return toast('اسمحي للمتصفح بالوصول إلى الميكروفون'); }
+  const chunks = [], mr = new MediaRecorder(stream, recOpts());
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => {
+    clearTimeout(CHAT_REC && CHAT_REC.timer); stream.getTracks().forEach(tr => tr.stop()); CHAT_REC = null;
+    const blob = new Blob(chunks, {type: mr.mimeType || 'audio/webm'}), vk = 'chat_' + Date.now().toString(36);
+    try {
+      await idbPut(vk, blob);
+      onSaved(vk); save(); toast('تم إرسال الرسالة الصوتية 🎙️');
+      voiceUpload(vk, blob).then(ok => { if (!ok && S.cloud && S.cloud.f) toast('تعذّر رفع الصوت، لن يسمعه الجهاز الآخر'); })
+        .catch(() => toast('تعذّر رفع الصوت، لن يسمعه الجهاز الآخر'));
+    } catch (e) { toast('تعذّر حفظ الرسالة الصوتية'); }
+    onChange();
+  };
+  const timer = setTimeout(() => { if (CHAT_REC && CHAT_REC.mr.state !== 'inactive') CHAT_REC.mr.stop(); }, CHAT_MAX_VOICE_MS);
+  mr.start(); CHAT_REC = {mr, timer}; onChange();
+}
+// زر تعديل نص: يظهر للمدير فقط، ويفتح حقل التعديل لمفتاح محدّد (k)
+const editBox = (k, text) => UI.edit === k
+  ? `<div class="row" style="gap:6px;margin-top:6px"><textarea id="edTxt" rows="2" style="flex:1">${esc(text)}</textarea><button class="btn sm ok" data-act="saveEdit" data-k="${esc(k)}">💾 حفظ</button><button class="btn sm ghost" data-act="editCancel">إلغاء</button></div>`
+  : `<button class="btn sm ghost" data-act="editStart" data-k="${esc(k)}">✏️ تعديل</button>`;
 const roomMsgs = room => chatState().msgs.filter(m => m.room === room).sort((a, b) => a.at - b.at);
 // عدد الرسائل غير المقروءة للطفل: من المجموعة، ومن رسائلها الخاصة، ومن التعميمات
 function chatUnread(cid){
@@ -2381,7 +2486,7 @@ function renderChatPage(id, room){
   let body;
   if (r === 'broadcast') {
     markSeen(id, 'broadcast');
-    body = broadcasts().slice().reverse().map(b => `<div class="card" style="border-right:6px solid #f0a500"><div class="muted" style="font-size:12px">${esc(new Date(b.at).toLocaleString('ar', {dateStyle: 'short', timeStyle: 'short'}))}</div><p>${esc(b.text)}</p></div>`).join('') || '<p class="muted center">لا توجد تعميمات.</p>';
+    body = broadcasts().slice().reverse().map(b => `<div class="card" style="border-right:6px solid #f0a500"><div class="muted" style="font-size:12px">${esc(new Date(b.at).toLocaleString('ar', {dateStyle: 'short', timeStyle: 'short'}))}</div>${b.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(b.vk)}">▶️ استماع 📢🎙️</button>` : `<p>${esc(b.text)}</p>`}</div>`).join('') || '<p class="muted center">لا توجد تعميمات.</p>';
   } else {
     markSeen(id, r);
     body = roomMsgs(r).map(m => {
@@ -3342,7 +3447,7 @@ const AGENT_TEMPLATES = {
   full:    {label:'ولي أمر كامل', perms:['kids','reports','notes','content','print']}
 };
 // الصفحة -> الصلاحية المطلوبة لفتحها
-const TAB_PERM = {dash:'reports', kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print'};
+const TAB_PERM = {dash:'reports', kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print', inbox:'reports'};
 // أفعال الحذف: تُمنح بصلاحية "حذف" فقط
 const DELETE_ACTS = new Set(['delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
 // قائمة الوكلاء، مع ترحيل رمز ولي الأمر القديم إلى وكيل واحد
@@ -3412,12 +3517,55 @@ function weekPresent(c){
 }
 // ===== مراسلة مدير النظام: طلب تفعيل أو رسالة من الطفل أو الوكيل =====
 // الرسائل محفوظة على هذا الجهاز مع بيانات الأكاديمية
-function sendToAdmin(from, name, text, kind, cid){
+// to: 'admin' أو معرّف الوكيل؛ الرسائل القديمة بلا to تُعامل كطلبات لمدير النظام
+function sendToAdmin(from, name, text, kind, cid, to){
   S.inbox = S.inbox || [];
-  S.inbox.push({id:'m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), from, name, text: String(text || '').trim().slice(0, 500), kind, cid: cid || null, at: Date.now(), read: false});
+  S.inbox.push({id:'m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), from, name, text: String(text || '').trim().slice(0, 500), kind, cid: cid || null, to: to || null, at: Date.now(), read: false});
   save();
 }
 const unreadCount = () => (S.inbox || []).filter(m => !m.read).length;
+// ===== مراسلة الطفل لمدير النظام أو لولي أمره =====
+// المستلمون: مدير النظام، وكل وكيل نشط مسند إليه هذا الطفل
+const kidRecipients = cid => {
+  const list = [['admin', '🛡️ مدير النظام']];
+  agents().forEach(a => { if (a.kids.includes(cid) && isActive(a)) list.push([a.id, '👤 ' + a.name]); });
+  return list;
+};
+const kidMsgsOf = cid => (S.inbox || []).filter(m => m.cid === cid).sort((a, b) => b.at - a.at);
+const kidMsgUnread = cid => (S.inbox || []).filter(m => m.cid === cid && m.kidUnread).length;
+const msgTime = at => new Date(at).toLocaleString('ar', {dateStyle: 'short', timeStyle: 'short'});
+const toLabel = to => {
+  if (!to || to === 'admin') return '🛡️ مدير النظام';
+  const a = agents().find(x => x.id === to);
+  return a ? '👤 ' + a.name : 'ولي الأمر';
+};
+// مدير النظام يرى كل الرسائل، والوكيل يرى ما وُجّه إليه، والقديم منها لأطفاله المسندين إليه فقط
+const msgVisible = m => {
+  if (UI.parentRole !== 'guardian') return true;
+  // الوكيل طرف في الرسالة إن وُجّهت إليه، أو أضافه مدير النظام إلى المحادثة، أو رد فيها
+  if (m.to === UI.agentId || (m.participants || []).includes(UI.agentId) || (m.replies || []).some(r => r.byId === UI.agentId)) return true;
+  if (m.to) return false;
+  return !!m.cid && visibleKids().some(k => k.id === m.cid);
+};
+function renderKidMsgs(cid){
+  const c = CH(cid);
+  if (!c) return renderHome();
+  if (c.chatOff) { view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div><div class="card center"><h3>✉️ المراسلة متوقفة</h3><p class="muted">أوقف ولي الأمر المراسلة لهذا الحساب.</p></div>`; return; }
+  const recips = kidRecipients(cid);
+  const items = kidMsgsOf(cid).map(m => {
+    const replies = (m.replies || []).map(r => `<div class="card" style="background:#f3f9ff;margin:6px 0 0"><span class="muted" style="font-size:12px">↩️ ${esc(r.by)} • ${esc(msgTime(r.at))}</span><div>${esc(r.text)}</div></div>`).join('');
+    const head = m.kind === 'activate' ? '🔓 طلب تفعيل' : 'إلى: ' + esc(toLabel(m.to));
+    return `<div class="card" style="border-right:6px solid ${m.kidUnread ? '#c73f70' : '#ccc'}"><div class="row between"><b>${head}</b><span class="muted" style="font-size:12px">${esc(msgTime(m.at))}</span></div><div>${esc(m.text)}</div>${replies}</div>`;
+  }).join('');
+  view().innerHTML = `
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><h2>✉️ رسائلي</h2></div>
+  <div class="card"><h3>✉️ رسالة جديدة</h3>
+    <label class="f">إلى</label><select id="kmTo">${recips.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join('')}</select>
+    <textarea id="kmTxt" rows="3" maxlength="500" style="width:100%;margin-top:8px" placeholder="اكتبي رسالتك"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn ok" data-act="kidSend" data-id="${esc(cid)}">📨 إرسال</button></div>
+  </div>
+  ${items || '<div class="card"><p class="muted">لا توجد رسائل بعد.</p></div>'}`;
+}
 // تنبيهات الدخول لأطفال الوكيل (أو كل الأطفال للمدير)
 function alertsHtml(){
   const rows = visibleKids().map(c => {
@@ -3453,7 +3601,7 @@ function guardDenied(act, d){
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','cloudCreate','cloudSync','cloudStop']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','bcRecStart','chatDel','editStart','editCancel','saveEdit','addParticipant','cloudCreate','cloudSync','cloudStop']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 function agentsHtml(){
@@ -3486,6 +3634,35 @@ function armParentTimer(){
   parentTimer = setTimeout(() => { UI.parentOk = false; if (document.querySelector('.tabs')) { toast('أُغلقت لوحة ولي الأمر تلقائياً للأمان'); go(renderHome); } }, 5 * 60 * 1000);
 }
 document.addEventListener('click', () => { if (UI.parentOk) armParentTimer(); });
+// ===== بقاء الجلسة عند إعادة تحميل الصفحة (مثل السحب للتحديث) =====
+// تُحفظ في sessionStorage: تبقى في هذا التبويب فقط وتُمحى بإغلاقه، وتُحفظ مع كل تنقل
+// جلسة ولي الأمر لا تُستعاد إذا مضى عليها أكثر من مدة الخمول المعتادة (5 دقائق)
+const SESSION_KEY = 'academySession';
+const PARENT_IDLE_MS = 5 * 60 * 1000;
+function saveSession(){
+  if (!READY) return; // لا تُكتب الجلسة قبل اكتمال التحميل حتى لا تُمحى قبل قراءتها
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({kid: UI.kid || null, parentOk: !!UI.parentOk, parentRole: UI.parentRole || null, agentId: UI.agentId || null, at: Date.now()}));
+  } catch (e) { /* التخزين غير متاح: تعمل الصفحة بدون استعادة */ }
+}
+// يعيد الشاشة السابقة بعد إعادة التحميل، ويرجع false إن لم توجد جلسة صالحة
+function restoreSession(){
+  let s = null;
+  try { s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { s = null; }
+  if (!s) return false;
+  if (s.parentOk && s.parentRole && Date.now() - s.at < PARENT_IDLE_MS) {
+    const agent = s.parentRole === 'guardian' ? agents().find(a => a.id === s.agentId) : null;
+    if (s.parentRole === 'admin' || (agent && isActive(agent))) {
+      UI.parentOk = true; UI.parentRole = s.parentRole; UI.agentId = agent ? agent.id : null;
+      UI.kid = null; NAV.length = 0; CUR = null; armParentTimer();
+      if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0] ? S.children[0].id : null;
+      if (s.parentRole === 'admin') renderAdminHome(); else renderParent();
+      return true;
+    }
+  }
+  if (s.kid && CH(s.kid)) { UI.parentOk = false; UI.kid = s.kid; NAV.length = 0; CUR = null; renderChild(s.kid); return true; }
+  return false;
+}
 // فتح لوحة ولي الأمر بعد التحقق: مدير النظام أو وكيل، وتبدأ من لوحة التحكم
 function enterParent(role, agent){
   UI.parentOk = true; UI.parentRole = role; UI.agentId = agent ? agent.id : null;
@@ -3502,7 +3679,7 @@ const PARENT_GROUPS = [
 ];
 const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'📥 الرسائل والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 function renderParent(){
-  applyTheme(); ensureActivity();
+  applyTheme(); ensureActivity(); chatPrune().catch(() => {});
   const guard = UI.parentRole === 'guardian';
   const allowed = t => !guard || (!!TAB_PERM[t] && agentAllows(TAB_PERM[t]));
   const groups = PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(allowed)]).filter(([, keys]) => keys.length);
@@ -3515,6 +3692,7 @@ function renderParent(){
   <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
   <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
   ${alertsHtml()}<div>${PARENT[cur]()}</div>`;
+  focusMsgCard(); // إن جاء الفتح من إشعار رسالة
 }
 // الكؤوس: تُستحق بالفوز في المسابقات، وبعدد النجوم، وبعدد المهارات المتقنة
 const CUP_RULES = [
@@ -3537,13 +3715,18 @@ function cupsHtml(cid){
     <div class="cup-shelf">${earned.length ? earned.join('') : '<p class="muted">لم تحصلي على كأس بعد، ابدئي التدريب لتربحي أول كأس!</p>'}</div>${rows}</div>`;
 }
 // قائمة الفائزين: الترتيب حسب النقاط (النجوم)، مع عدد الكؤوس وآخر النتائج
-function winnersHtml(limit = 8){
-  const rank = S.children.map(c => ({c, pts: P(c.id).stars || 0, wins: compWins(c.id)})).sort((a, b) => b.pts - a.pts || b.wins - a.wins);
+// kids: الأطفال الذين يُعرض ترتيبهم؛ ولي الأمر يرى المسندين إليه فقط، والطفلة ترى الجميع
+function winnersHtml(limit = 8, kids = S.children){
+  const rank = kids.map(c => ({c, pts: P(c.id).stars || 0, wins: compWins(c.id)})).sort((a, b) => b.pts - a.pts || b.wins - a.wins);
   const rankRows = rank.map((r, i) => `<div class="row between" style="padding:8px 10px;border-radius:14px;background:${esc(r.c.color)}1f;margin-top:6px"><b>${i + 1}. ${esc(r.c.name)}</b><span class="row" style="gap:6px"><span class="pill">⭐ ${fmt(r.pts)} نقطة</span><span class="pill">🏆 ${fmt(r.wins)}</span></span></div>`).join('');
-  const recent = [...S.comps].reverse().slice(0, limit);
+  // آخر النتائج: كل المسابقات لمدير النظام والطفلة، ومسابقات أطفال الوكيل لوليّ الأمر
+  const all = kids === S.children, ids = new Set(kids.map(c => c.id));
+  const recent = [...S.comps].reverse().filter(x => all || (x.players || []).some(p => ids.has(p.cid))).slice(0, limit);
   const recRows = recent.length ? recent.map(x => {
     const tie = x.winner === 'تعادل', wp = (x.players || []).find(p => p.cid && p.cid === x.winnerId);
-    return `<div class="row between" style="padding:8px 4px;border-bottom:1px solid var(--line)"><span>${tie ? '🤝 تعادل' : '🥇 ' + esc(x.winner)}</span><span class="muted" style="font-size:13px">${esc(x.date || '')}${wp ? ' • ' + fmt(wp.score) : ''}</span></div>`;
+    // ولي الأمر لا يرى اسم فائزة ليست من أطفاله
+    const hide = !all && !tie && !(x.winnerId && ids.has(x.winnerId));
+    return `<div class="row between" style="padding:8px 4px;border-bottom:1px solid var(--line)"><span>${tie ? '🤝 تعادل' : hide ? '🥇 فازت متسابقة أخرى' : '🥇 ' + esc(x.winner)}</span><span class="muted" style="font-size:13px">${esc(x.date || '')}${wp && !hide ? ' • ' + fmt(wp.score) : ''}</span></div>`;
   }).join('') : '<p class="muted">لا توجد مسابقات بعد</p>';
   return `<div class="card"><h3>🏅 قائمة الفائزين</h3>${rankRows}<h4 style="margin-top:12px">آخر النتائج</h4>${recRows}</div>`;
 }
@@ -3683,25 +3866,34 @@ const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل طفل مسندة إليه، مع الوصول إلى تقريرها الكامل
   // رسائل الأطفال والوكلاء الواردة إلى مدير النظام
   inbox(){
-    return PARENT.bcForm() + PARENT.chatWatch() + PARENT.inboxList();
+    // الوكيل يرى رسائله فقط، أما التعميم ومحادثات الأطفال فلمدير النظام
+    return UI.parentRole !== 'guardian' ? PARENT.bcForm() + PARENT.chatWatch() + PARENT.inboxList() : PARENT.inboxList();
   },
   bcForm(){
     const list = broadcasts().slice().reverse().slice(0, 5);
-    return `<div class="card" style="border-right:6px solid #f0a500"><h3>📢 تعميم للجميع</h3><p class="muted">يصل إلى كل الأطفال على هذا الجهاز، ويبقى شهراً ثم يُحذف.</p><textarea id="bcTxt" rows="2" style="width:100%" placeholder="اكتبي نص التعميم"></textarea><div class="row" style="margin-top:8px"><button class="btn sm ok" data-act="broadcastSend">📢 إرسال التعميم</button></div>${list.length ? `<h4 style="margin-top:12px">آخر التعميمات</h4>${list.map(b => `<div class="row between" style="gap:6px"><span>${esc(b.text)}</span><button class="btn sm danger" data-act="broadcastDel" data-id="${esc(b.id)}">🗑️</button></div>`).join('')}` : ''}</div>`;
+    return `<div class="card" style="border-right:6px solid #f0a500"><h3>📢 تعميم للجميع</h3><p class="muted">يصل إلى كل الأطفال، ويبقى شهراً ثم يُحذف.</p><textarea id="bcTxt" rows="2" style="width:100%" placeholder="اكتبي نص التعميم"></textarea><div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="broadcastSend">📢 إرسال التعميم</button><button class="btn sm ${CHAT_REC ? 'danger' : 'ok'}" data-act="${CHAT_REC ? 'chatRecStop' : 'bcRecStart'}">${CHAT_REC ? '⏹️ إيقاف التسجيل' : '🎙️ تعميم صوتي'}</button></div>${list.length ? `<h4 style="margin-top:12px">آخر التعميمات</h4>${list.map(b => `<div style="border-bottom:1px dashed #f0b6cc;padding:6px 0"><div class="row between" style="gap:6px"><span>${b.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(b.vk)}">▶️ استماع 📢🎙️</button>` : esc(b.text)}</span><button class="btn sm danger" data-act="broadcastDel" data-id="${esc(b.id)}">🗑️</button></div>${b.kind === 'voice' ? '' : editBox('bc:' + b.id, b.text)}</div>`).join('')}` : ''}</div>`;
   },
   chatWatch(){
     const list = chatState().msgs.slice().sort((a, b) => b.at - a.at).slice(0, 30);
-    return `<div class="card"><h3>👀 محادثات الأطفال (آخر شهر، للقراءة فقط)</h3>${list.length ? list.map(m => `<div class="row between" style="gap:6px;border-bottom:1px dashed #f0b6cc;padding:4px 0"><span><b>${esc(m.name)}</b> ${m.room === 'group' ? '(المجموعة)' : '(خاصة)'}: ${m.kind === 'voice' ? '🎙️ رسالة صوتية' : esc(m.text)}</span><span class="muted" style="font-size:11px">${esc(new Date(m.at).toLocaleString('ar', {dateStyle: 'short', timeStyle: 'short'}))}</span></div>`).join('') : '<p class="muted">لا توجد محادثات.</p>'}</div>`;
+    return `<div class="card"><h3>👀 محادثات الأطفال (آخر شهر)</h3>${list.length ? list.map(m => `<div style="border-bottom:1px dashed #f0b6cc;padding:6px 0"><div class="row between" style="gap:6px"><span><b>${esc(m.name)}</b> ${m.room === 'group' ? '(المجموعة)' : '(خاصة)'}</span><span class="muted" style="font-size:11px">${esc(msgTime(m.at))}</span></div>${m.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(m.vk)}">▶️ استماع 🎙️</button>` : `<div>${esc(m.text)}</div>${editBox('ch:' + m.id, m.text)}`}<div class="row" style="gap:6px;margin-top:4px"><button class="btn sm danger" data-act="chatDel" data-id="${esc(m.id)}">🗑️ حذف</button></div></div>`).join('') : '<p class="muted">لا توجد محادثات.</p>'}</div>`;
   },
   inboxList(){
-    const list = (S.inbox || []).slice().reverse();
+    const list = (S.inbox || []).filter(msgVisible).slice().reverse();
+    const admin = UI.parentRole === 'admin';
     if (!list.length) return `<div class="card"><h3>📥 الرسائل</h3><p class="muted">لا توجد رسائل.</p></div>`;
-    return `<div class="card"><h3>📥 الرسائل (${unreadCount()} جديدة)</h3>${list.map(m => {
+    return `<div class="card"><h3>📥 الرسائل (${list.filter(m => !m.read).length} جديدة)</h3>${list.map(m => {
       const kid = m.cid ? CH(m.cid) : null, frozen = kid && isFrozenNow(kid);
-      return `<div class="card" style="border-right:6px solid ${m.read ? '#ccc' : '#c73f70'}">
-        <div class="row between"><b>${esc(m.name)}</b><span class="muted" style="font-size:12px">${esc(new Date(m.at).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'}))}</span></div>
-        <p>${m.kind === 'activate' ? '🔓 <b>طلب تفعيل:</b> ' : ''}${esc(m.text || '—')}</p>
-        <div class="row" style="gap:6px;flex-wrap:wrap">${m.read ? '' : `<button class="btn sm ghost" data-act="inboxRead" data-id="${esc(m.id)}">✅ تم التعامل</button>`}${frozen ? `<button class="btn sm ok" data-act="reactivateKid" data-id="${esc(kid.id)}">🔓 إعادة تفعيل ${esc(kid.name)}</button>` : ''}<button class="btn sm danger" data-act="inboxDel" data-id="${esc(m.id)}">🗑️ حذف</button></div></div>`;
+      const replies = (m.replies || []).map((r, i) => `<div class="muted" style="margin-top:4px">↩️ <b>${esc(r.by)}:</b> ${esc(r.text)}</div>${admin ? editBox('rp:' + m.id + ':' + i, r.text) : ''}`).join('');
+      // الرد يُرسل إلى الطفل من أي من مستلمي الرسالة، ولا رد على الرسائل بلا طفل
+      const reply = m.cid ? `<div class="row" style="gap:6px;margin-top:8px"><input id="rp_${esc(m.id)}" placeholder="اكتبي ردك" style="flex:1"><button class="btn sm ok" data-act="replyKid" data-id="${esc(m.id)}">↩️ رد</button></div>` : '';
+      // المشاركون في المحادثة، وإضافة ولي أمر إليها لمدير النظام فقط
+      const parts = (m.participants || []).map(id => toLabel(id)).join('، ');
+      const guards = admin && m.cid ? agents().filter(a => a.kids.includes(m.cid) && isActive(a) && a.id !== m.to && !(m.participants || []).includes(a.id)) : [];
+      const addP = admin ? `<div class="muted" style="font-size:12px;margin-top:4px">المشاركون: ${parts ? esc(parts) : 'لا أحد بعد'}</div>${guards.length ? `<div class="row" style="gap:6px;margin-top:6px"><select id="ap_${esc(m.id)}">${guards.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select><button class="btn sm ghost" data-act="addParticipant" data-id="${esc(m.id)}">➕ إضافة ولي أمر للمحادثة</button></div>` : ''}` : '';
+      return `<div class="card" id="msg_${esc(m.id)}" style="border-right:6px solid ${m.read ? '#ccc' : '#c73f70'}">
+        <div class="row between"><span><b>${esc(m.name)}</b> <span class="muted" style="font-size:12px">← ${esc(toLabel(m.to))}</span></span><span class="muted" style="font-size:12px">${esc(msgTime(m.at))}</span></div>
+        <p>${m.kind === 'activate' ? '🔓 <b>طلب تفعيل:</b> ' : ''}${esc(m.text || '—')}</p>${admin ? editBox('in:' + m.id, m.text || '') : ''}${replies}${reply}${addP}
+        <div class="row" style="gap:6px;flex-wrap:wrap">${admin && !m.read ? `<button class="btn sm ghost" data-act="inboxRead" data-id="${esc(m.id)}">✅ تم التعامل</button>` : ''}${admin && frozen ? `<button class="btn sm ok" data-act="reactivateKid" data-id="${esc(kid.id)}">🔓 إعادة تفعيل ${esc(kid.name)}</button>` : ''}${admin ? `<button class="btn sm danger" data-act="inboxDel" data-id="${esc(m.id)}">🗑️ حذف</button>` : ''}</div></div>`;
     }).join('')}</div>`;
   },
   // لوحة التحكم: ملخص عام، تنبيهات، وبطاقة لكل طفل مع دخول مباشر كالطفل
@@ -3738,7 +3930,7 @@ const PARENT = {
           <button class="btn sm ghost" data-act="dashReport" data-id="${esc(c.id)}">📊 التقرير الكامل</button>
         </div></div>`;
     }).join('');
-    return `${summary}${alertBox}<div class="dash-grid">${cards}</div>`;
+    return `${summary}${alertBox}${winnersHtml(8, kids)}<div class="dash-grid">${cards}</div>`;
   },
   reports(){
     return `${overviewKpis()}${compareHTML()}${childPicker()}${UI.pchild && CH(UI.pchild) ? skillOverrideCardHtml(UI.pchild) : ''}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
@@ -4262,33 +4454,40 @@ const ACT = {
     chatState().msgs.push({id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), room, from: d.id, name: c.name, kind: 'text', text: t.slice(0, 500), at: Date.now()});
     save(); renderChatPage(d.id, room);
   },
-  chatRecStart: async d => {
-    if (CHAT_REC || (CH(d.id) || {}).chatOff) return;
-    if (!navigator.mediaDevices || !window.MediaRecorder) return toast('التسجيل غير مدعوم في هذا المتصفح');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-      const chunks = [], mr = new MediaRecorder(stream, recOpts()), room = UI.chatRoom || 'group';
-      mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-      mr.onstop = async () => {
-        clearTimeout(CHAT_REC && CHAT_REC.timer); stream.getTracks().forEach(tr => tr.stop()); CHAT_REC = null;
-        const blob = new Blob(chunks, {type: mr.mimeType || 'audio/webm'}), vk = 'chat_' + Date.now().toString(36);
-        const c = CH(d.id);
-        try {
-          await idbPut(vk, blob);
-          chatState().msgs.push({id: 'c' + Date.now().toString(36), room, from: d.id, name: c ? c.name : '', kind: 'voice', vk, at: Date.now()});
-          save(); toast('تم إرسال الرسالة الصوتية 🎙️');
-        } catch (e) { toast('تعذّر حفظ الرسالة الصوتية'); }
-        renderChatPage(d.id, room);
-      };
-      const timer = setTimeout(() => { if (CHAT_REC && CHAT_REC.mr.state !== 'inactive') CHAT_REC.mr.stop(); }, CHAT_MAX_VOICE_MS);
-      mr.start(); CHAT_REC = {mr, timer}; renderChatPage(d.id, room);
-    } catch (e) { toast('اسمحي للمتصفح بالوصول إلى الميكروفون'); }
+  chatRecStart: d => {
+    const c = CH(d.id);
+    if (!c || c.chatOff) return;
+    const room = UI.chatRoom || 'group';
+    recordVoice(vk => chatState().msgs.push({id: 'c' + Date.now().toString(36), room, from: d.id, name: c.name, kind: 'voice', vk, at: Date.now()}), () => renderChatPage(d.id, room));
   },
+  // تعميم صوتي من مدير النظام يصل إلى كل الأطفال
+  bcRecStart: () => recordVoice(vk => broadcasts().push({id: 'b' + Date.now().toString(36), kind: 'voice', vk, text: '', at: Date.now()}), () => renderParent()),
   chatRecStop: () => { if (CHAT_REC) CHAT_REC.mr.stop(); },
+  // الاستماع: من الجهاز أولاً، وإن لم يكن موجوداً يُجلب من السحابة
   chatPlay: async d => {
-    const b = await idbGet(d.k).catch(() => null);
+    let b = await idbGet(d.k).catch(() => null);
+    if (!b) b = await voiceFetch(d.k).catch(() => null);
     if (!b) return toast('الرسالة الصوتية غير متاحة');
     new Audio(URL.createObjectURL(b)).play();
+  },
+  // تعديل وحذف الرسائل: للمدير فقط
+  editStart: d => { UI.edit = d.k; renderParent(); },
+  editCancel: () => { UI.edit = null; renderParent(); },
+  saveEdit: d => {
+    const t = (($('#edTxt') || {}).value || '').trim();
+    if (!t) return toast('اكتبي النص أولاً');
+    const [kind, id, idx] = String(d.k).split(':'), txt = t.slice(0, 500);
+    if (kind === 'ch') { const m = chatState().msgs.find(x => x.id === id); if (m && m.kind === 'text') m.text = txt; }
+    else if (kind === 'bc') { const b = broadcasts().find(x => x.id === id); if (b && b.kind !== 'voice') b.text = txt; }
+    else if (kind === 'in') { const m = (S.inbox || []).find(x => x.id === id); if (m) m.text = txt; }
+    else if (kind === 'rp') { const m = (S.inbox || []).find(x => x.id === id); const r = m && (m.replies || [])[+idx]; if (r) r.text = txt; }
+    UI.edit = null; save(); toast('تم حفظ التعديل ✅'); renderParent();
+  },
+  chatDel: d => {
+    const st = chatState(), m = st.msgs.find(x => x.id === d.id);
+    if (!m) return;
+    if (m.vk) idbDel(m.vk).catch(() => {});
+    st.msgs = st.msgs.filter(x => x.id !== d.id); save(); renderParent();
   },
   broadcastSend: () => {
     const t = (($('#bcTxt') || {}).value || '').trim();
@@ -4296,7 +4495,11 @@ const ACT = {
     broadcasts().push({id: 'b' + Date.now().toString(36), text: t.slice(0, 500), at: Date.now()});
     save(); toast('تم إرسال التعميم للجميع ✅'); renderParent();
   },
-  broadcastDel: d => { S.broadcasts = broadcasts().filter(b => b.id !== d.id); save(); renderParent(); },
+  broadcastDel: d => {
+    const b = broadcasts().find(x => x.id === d.id);
+    if (b && b.vk) idbDel(b.vk).catch(() => {});
+    S.broadcasts = broadcasts().filter(x => x.id !== d.id); save(); renderParent();
+  },
   profilePick: d => { UI.pickProfile = UI.pickProfile === d.id ? null : d.id; renderChild(d.id); },
   profileColor: d => { const c = CH(d.id); if (!c) return; c.color = d.c; c.colorSet = true; UI.pickProfile = null; save(); toast('تم تغيير لون ملفك ✨'); renderChild(d.id); },
   girlColor: d => { const c = CH(d.id); if (!c) return; c.theme = d.c; applyTheme(c.theme); save(); toast('تم تغيير اللون 🎨'); renderChild(d.id); },
@@ -4902,6 +5105,33 @@ const ACT = {
     save(); renderParent(); toast('تم الحفظ');
   },
   sendFrozen: d => { const c = CH(d.id); if (!c) return; const t = (($('#frzMsg') || {}).value || '').trim(); if (!t) return toast('اكتبي رسالتك أولاً'); sendToAdmin('child:' + c.id, c.name, t, 'activate', c.id); toast('تم إرسال الطلب لمدير النظام ✅'); $('#frozenBox').innerHTML = ''; },
+  // الطفل يفتح «رسائلي»: تُعتبر الردود مقروءة
+  kmsg: d => { kidMsgsOf(d.id).forEach(m => { m.kidUnread = false; }); save(); go(() => renderKidMsgs(d.id)); },
+  kidSend: d => {
+    const c = CH(d.id), t = (($('#kmTxt') || {}).value || '').trim(), to = ($('#kmTo') || {}).value || 'admin';
+    if (!t || !c || c.chatOff) return;
+    if (!kidRecipients(d.id).some(([id]) => id === to)) return toast('هذا المستلم غير متاح');
+    sendToAdmin('child:' + c.id, c.name, t, 'msg', c.id, to);
+    toast('تم إرسال الرسالة ✅'); renderKidMsgs(d.id);
+  },
+  // رد ولي الأمر أو مدير النظام: يظهر للطفل كرسالة جديدة
+  // مدير النظام يضيف ولي أمر إلى المحادثة، فيرى الرسالة كاملة ويستطيع الرد
+  addParticipant: d => {
+    const m = (S.inbox || []).find(x => x.id === d.id), a = (($('#ap_' + d.id)) || {}).value;
+    if (!m || !a) return;
+    m.participants = (m.participants || []).concat([a]).filter((v, i, arr) => arr.indexOf(v) === i);
+    save(); toast('تمت إضافة ولي الأمر إلى المحادثة ✅'); renderParent();
+  },
+  replyKid: d => {
+    const m = (S.inbox || []).find(x => x.id === d.id);
+    const t = (($('#rp_' + d.id) || {}).value || '').trim();
+    if (!m || !m.cid) return;
+    if (!t) return toast('اكتبي الرد أولاً');
+    if (!msgVisible(m)) return toast('هذه الرسالة غير موجهة إليك');
+    const by = UI.parentRole === 'admin' ? 'مدير النظام' : ((currentAgent() || {}).name || 'ولي الأمر');
+    m.replies = (m.replies || []).concat([{text: t.slice(0, 500), at: Date.now(), by, byId: UI.parentRole === 'admin' ? 'admin' : UI.agentId}]);
+    m.kidUnread = true; m.read = true; save(); toast('تم إرسال الرد ✅'); renderParent();
+  },
   inboxRead: d => { const m = (S.inbox || []).find(x => x.id === d.id); if (m) { m.read = true; save(); renderParent(); } },
   inboxDel: d => { S.inbox = (S.inbox || []).filter(x => x.id !== d.id); save(); renderParent(); },
   reactivateKid: d => { const c = CH(d.id); if (!c) return; c.frozen = false; c.lastLogin = Date.now(); (S.inbox || []).forEach(m => { if (m.cid === c.id) m.read = true; }); save(); toast('تمت إعادة تفعيل الحساب ✅'); renderParent(); },
