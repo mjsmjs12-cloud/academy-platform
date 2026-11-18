@@ -485,10 +485,10 @@ async function bootApp(){
   S = r.state;
   if (r.legacy) persistNow(JSON.stringify(S)); // ترحيل مرة واحدة إلى IndexedDB دون تغيير توقيت المزامنة
   const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
-  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); }
+  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setLocalAt(S._at || Date.now()); }
   READY = true;
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
-  applyTheme(); renderHome(); driveBoot();
+  applyTheme(); renderHome(); driveBoot(); startCloudPolling();
 }
 function migrate(d){
   const def = defaultState();
@@ -672,15 +672,61 @@ async function driveDownload(id){ return (await gfetch(`https://www.googleapis.c
 
 // ===== الرابط السحابي: بيانات الأكاديمية على خادم Vercel، ليدخل الطفل من أي جهاز عبر الرابط =====
 const CLOUD_API = '/api/family', CLOUD_MAX = 900 * 1024;
-let CLOUD_TIMER = null;
+let CLOUD_TIMER = null, CLOUD_POLL = null, CLOUD_LISTENING = false;
 const cloudLink = f => location.origin + location.pathname + '?f=' + f;
 function cloudSoon(){
   if (!S.cloud || !S.cloud.f) return;
   clearTimeout(CLOUD_TIMER);
-  CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => {}), 1500);
+  CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => cloudRetry()), 1500);
 }
+// فشل الرفع التلقائي (انقطاع مثلاً): نعيد المحاولة كل 20 ثانية دون إزعاج
+function cloudRetry(){
+  clearTimeout(CLOUD_TIMER);
+  CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => cloudRetry()), 20000);
+}
+// يجلب نسخة الخادم: يُرجع البيانات أو null إن لم توجد
+async function cloudGet(){
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f));
+  if (r.status === 404) return null;
+  if (!r.ok) { const err = new Error('get'); err.status = r.status; throw err; }
+  return JSON.parse(await r.text());
+}
+// يطبّق نسخة الخادم الأحدث على هذا الجهاز، ويحتفظ بالرابط المحلي
+function cloudApply(d){
+  try {
+    keepPrev(JSON.stringify(S));
+    const link = S.cloud;
+    S = migrate(d); S.cloud = link;
+    persistNow(JSON.stringify(S)); setLocalAt(d._at || Date.now());
+    applyTheme();
+    if (UI.parentOk) renderParent();
+    else if (UI.kid && !document.querySelector('input:focus, textarea:focus')) renderChild(UI.kid);
+    toast('☁️ وصلت تحديثات من الجهاز الآخر');
+  } catch (e) { console.warn('cloud: bad remote data', e); }
+}
+// سحب دوري: يطبّق الخادم إن كان أحدث من آخر تعديل محلي
+async function cloudPull(){
+  if (!S.cloud || !S.cloud.f) return;
+  const d = await cloudGet();
+  if (d && (d._at || 0) > localAt()) cloudApply(d);
+}
+// يبدأ السحب الدوري كل 30 ثانية، وعند عودة البرنامج للظهور
+function startCloudPolling(){
+  clearInterval(CLOUD_POLL);
+  if (!S.cloud || !S.cloud.f) return;
+  CLOUD_POLL = setInterval(() => { if (!document.hidden) cloudPull().catch(() => {}); }, 30000);
+  if (!CLOUD_LISTENING) {
+    CLOUD_LISTENING = true;
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && S.cloud && S.cloud.f) cloudPull().catch(() => {}); });
+  }
+}
+// الرفع: إن كان الخادم أحدث من آخر تعديل محلي نسحب بدل أن نكتب فوقه (الأحدث يفوز)
 async function cloudPush(){
   if (!S.cloud || !S.cloud.f) return false;
+  const remote = await cloudGet();
+  if (remote && (remote._at || 0) > localAt()) { cloudApply(remote); return true; }
+  const at = Date.now();
+  S._at = at;
   const body = JSON.stringify(S);
   if (body.length > CLOUD_MAX) { toast('حجم البيانات أكبر من الحد المسموح للرابط'); return false; }
   let r;
@@ -691,6 +737,7 @@ async function cloudPush(){
     let why = ''; try { why = (await r.json()).error || ''; } catch (e) {}
     const err = new Error(why || ('status ' + r.status)); err.status = r.status; throw err;
   }
+  setLocalAt(at);
   return true;
 }
 // يحوّل خطأ الرفع إلى سبب مفهوم بالعربية
@@ -4718,7 +4765,7 @@ const ACT = {
     const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
     S.cloud = {f: Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')};
     save();
-    try { await cloudPush(); toast('تم إنشاء الرابط ورفع البيانات ✅'); }
+    try { await cloudPush(); startCloudPolling(); toast('تم إنشاء الرابط ورفع البيانات ✅'); }
     catch (e) { toast('تعذّر الرفع: ' + cloudErrText(e)); }
     renderParent();
   },
@@ -4729,7 +4776,7 @@ const ACT = {
     if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(() => toast('تم نسخ الرابط'), () => toast('انسخي الرابط يدوياً'));
     else { document.execCommand('copy'); toast('تم نسخ الرابط'); }
   },
-  cloudStop: () => { S.cloud = null; save(); toast('أُوقف الرابط على هذا الجهاز'); renderParent(); },
+  cloudStop: () => { S.cloud = null; clearInterval(CLOUD_POLL); save(); toast('أُوقف الرابط على هذا الجهاز'); renderParent(); },
   driveNow: async () => {
     try { await driveAuth('interactive'); await driveSync(); toast('تمت المزامنة ☁️'); }
     catch (e) { toast('تعذّرت المزامنة: ' + (e.message || e)); }
