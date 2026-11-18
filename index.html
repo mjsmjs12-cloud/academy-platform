@@ -310,6 +310,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .back-btn{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:999px;border:none;background:#fff;font-size:18px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center}
 .back-btn[hidden]{display:none}
 .env-btn .env-pill{position:absolute;top:-4px;inset-inline-end:-4px;background:#e35d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:1px 6px;line-height:1.4}
+/* ===== تصميم هادئ عصري: طبقة تحسين واحدة فوق التصميم الحالي (قابلة للتراجع بحذفها) ===== */
+:root{--pri:#d64f80;--ink:#2b1f2a;--muted:#7a6670;--line:#eedfe6;--bg:#fbf7f9;--r:18px}
+html.dark{--pri:#e87aa0;--ink:#f5ecf2;--muted:#b7a3af;--line:#3f3140;--bg:#17121a}
+body{background:var(--bg)}
+.btn{background:var(--pri);background-image:none;box-shadow:0 1px 2px rgba(43,31,42,.12);border-radius:14px;font-weight:700;letter-spacing:.2px}
+.btn:hover{filter:brightness(1.03)}
+.btn.ok{background:#2f8f63}
+.btn.ghost{background:#fff;color:var(--pri);border:1px solid var(--line);box-shadow:none}
+.card{border-radius:20px;border:1px solid var(--line);box-shadow:0 1px 2px rgba(43,31,42,.04),0 8px 24px rgba(43,31,42,.06)}
+.hero{background:var(--pri);border:0;border-radius:22px;box-shadow:0 8px 24px rgba(214,79,128,.22)}
+.hero h1{font-size:24px;text-shadow:none;color:#fff}
+#brand{background:var(--pri);box-shadow:0 1px 0 rgba(0,0,0,.04)}
+input,select,textarea{border-color:var(--line);border-radius:12px;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px rgba(214,79,128,.15)}
 </style>
 </head>
 <body>
@@ -2415,6 +2429,21 @@ function emailLoginHtml(){
   return loginBox + regBox;
 }
 // شاشة الدخول: الاسم الأول + الرمز الخاص بالطفل فقط (بدون قائمة الأطفال)
+// شاشة منفصلة لدخول مدير النظام، وهو دور مستقل لا علاقة له بولي أمر الطفل، لذلك لا تظهر ضمن دخول الطفل وولي الأمر
+function renderAdminLogin(){
+  CUR_CID = null; applyTheme();
+  view().innerHTML = `
+  <div class="hero"><div style="font-size:44px">🔐</div><h1>دخول مدير النظام</h1><div class="muted">هذه الشاشة لمدير النظام فقط</div></div>
+  <div class="card" style="max-width:420px;margin:12px auto">
+    <p class="muted" style="font-size:13px">${S.settings.pin ? 'اسم مدير النظام ورمزه الخاص' : 'أول مرة: اكتبي اسم مدير النظام ورمزاً خاصاً لإنشاء الحساب'}</p>
+    <label class="f">اسم مدير النظام</label><input id="aname" autocomplete="off" value="${esc(S.settings.adminName || '')}">
+    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="acode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <div class="row center" style="margin-top:12px"><button class="btn" data-act="adminLogin">${S.settings.pin ? '🔓 دخول المدير' : '➕ إنشاء الحساب'}</button>${S.settings.pin ? '<button class="btn ghost sm" data-act="recoverAdmin">نسيت الرمز؟</button>' : ''}</div>
+    <p id="amsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
+  </div>
+  <div class="row center" style="margin:12px auto;max-width:420px"><button class="btn ghost sm" data-act="loginHome">⬅️ الرجوع إلى الدخول</button></div>`;
+}
+
 function renderLogin(){
   CUR_CID = null; applyTheme();
   view().innerHTML = `
@@ -2427,16 +2456,9 @@ function renderLogin(){
     ${emailLoginHtml()}
     <div id="frozenBox"></div>
   </div>
+  <div class="row center" style="margin:12px auto;max-width:420px"><button class="btn ghost" data-act="adminScreen">🔐 دخول مدير النظام</button></div>
   <div class="card" style="max-width:420px;margin:12px auto">
-    <h3>🔐 دخول مدير النظام (الوالد)</h3>
-    <p class="muted" style="font-size:13px">${S.settings.pin ? 'اسم مدير النظام ورمزه الخاص' : 'أول مرة: اكتبي اسم مدير النظام ورمزاً خاصاً لإنشاء الحساب'}</p>
-    <label class="f">اسم مدير النظام</label><input id="aname" autocomplete="off" value="${esc(S.settings.adminName || '')}">
-    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="acode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
-    <div class="row center" style="margin-top:12px"><button class="btn" data-act="adminLogin">${S.settings.pin ? '🔓 دخول المدير' : '➕ إنشاء الحساب'}</button>${S.settings.pin ? '<button class="btn ghost sm" data-act="recoverAdmin">نسيت الرمز؟</button>' : ''}</div>
-    <p id="amsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
-  </div>
-  <div class="card" style="max-width:420px;margin:12px auto">
-    <h3>👤 دخول ولي الأمر</h3>
+    <h3>👤 دخول ولي الأمر (الوالد)</h3>
     <p class="muted" style="font-size:13px">اسم ولي الأمر ورمزه الخاص كما أعدّهما مدير النظام</p>
     <label class="f">اسم ولي الأمر</label><input id="gname" autocomplete="off">
     <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="gcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
@@ -3920,10 +3942,10 @@ function reportHTML(cid){
    <h4>📅 ملخص اليوم</h4>
    <div class="kpis"><div class="kpi"><b>${timeStats(cid).today}</b><span>دقيقة</span></div><div class="kpi"><b>${tSkills}</b><span>أنشطة</span></div><div class="kpi"><b>${tSt.n}</b><span>أسئلة</span></div><div class="kpi"><b>${tSt.i}</b><span>صحيحة مستقلة</span></div><div class="kpi"><b>${tSt.a}</b><span>بمساعدة</span></div><div class="kpi"><b>${tSt.x}</b><span>أخطاء</span></div></div>
   </div>
+  <div class="card"><h3>🧠 توصيات</h3>${recommendations(cid).map(x => `<div class="rec">${x}</div>`).join('')}</div>
   ${timeHTML(cid)}
   <div class="card"><h3>📈 المقارنة الأسبوعية والشهرية (بالإجابة المستقلة)</h3><div class="tbl-wrap"><table><tr><th>المادة</th><th>أسئلة الأسبوع</th><th>هذا الأسبوع</th><th>الأسبوع الماضي</th><th>التغير</th><th>آخر ٣٠ يوماً</th></tr>${subRows}</table></div></div>
   ${last15Card(rs)}
-  <div class="card"><h3>🧠 توصيات</h3>${recommendations(cid).map(x => `<div class="rec">${x}</div>`).join('')}</div>
   <div class="card"><h3>🔤 الحروف العربية</h3><div class="chips" style="font-size:22px">${letterChips || '<span class="muted">لا بيانات بعد</span>'}</div>
    <p class="muted">🟢 متقن • 🔵 قريب • 🟡 قيد التعلم • 🔴 يحتاج دعماً • ⚪ جديد ${c.focus && c.focus.length ? `• 🎯 حروف التركيز الآن: ${c.focus.join(' ')}` : ''}</p>
    <h4>الحروف التي تخلط بينها</h4>${conf.length ? conf.map(([k, n]) => { const [a, b] = k.split('|'); return `<div class="rec">المطلوب «${a}» واختارت «${b}» — ${n} مرة</div>`; }).join('') : '<p class="muted">لا يوجد خلط مسجّل.</p>'}</div>
@@ -4047,7 +4069,8 @@ const PARENT = {
     return `${summary}${alertBox}${levelsCard}${winnersHtml(8, kids)}<div class="dash-grid">${cards}</div>`;
   },
   reports(){
-    return `${overviewKpis()}${compareHTML()}${childPicker()}${UI.pchild && CH(UI.pchild) ? skillOverrideCardHtml(UI.pchild) : ''}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
+    // ترتيب الصفحة: المؤشرات أولاً، ثم اختيار الطفل وأدوات الطباعة، ثم المقارنة، ثم تفاصيل الطفل المختار
+    return `${overviewKpis()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${compareHTML()}${UI.pchild && CH(UI.pchild) ? skillOverrideCardHtml(UI.pchild) : ''}${reportHTML(UI.pchild)}`;
   },
   words(){
     const e = UI.editWord ? S.words.find(w => w.id === UI.editWord) : null, f = UI.wfilter;
@@ -4507,6 +4530,8 @@ async function copyText(t){
 const ACT = {
   home: () => (UI.kid ? ACT.back() : (UI.parentOk && UI.parentRole === 'admin' ? go(renderAdminHome) : UI.parentOk && UI.parentRole === 'guardian' ? go(renderGuardianHome) : go(renderHome))),
   // دخول ولي الأمر بحسابه: الاسم والرمز الخاص كما أعدّهما مدير النظام
+  adminScreen: () => go(renderAdminLogin),
+  loginHome: () => go(renderLogin),
   guardianAccountLogin: () => {
     const msg = $('#gmsg'), name = normName(($('#gname') || {}).value), code = (($('#gcode') || {}).value || '').trim();
     if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
