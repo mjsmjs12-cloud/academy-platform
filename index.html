@@ -1616,12 +1616,13 @@ const SKILL_LEVELS = {
   ar_sent_order: 3,
   ar_comprehension: 3,
   en_sent_order: 3,
-  m_mul: 3,
   m_chart: 3,
   kn_experiment: 3,
   ar_story: 4,
   m_stats: 4,
-  m_div: 5
+  // الضرب والقسمة (6) لا يظهران إلا بعد اجتياز المستوى الخامس
+  m_mul: 6,
+  m_div: 6
 };
 // مستوى كل مهارة من 1 إلى 5: تظهر المهارة عندما يكون مستوى الطفل مساوياً له أو أعلى، والمهارة غير المذكورة تُعدّ من المستوى الأول
 const skillLevel = s => SKILL_LEVELS[s] || 1;
@@ -1632,7 +1633,7 @@ const MUL_MODES = [['on', 'مفعّل يدوياً (من ماهر)'], ['off', '�
 const OP_DEFAULT = {mode: 'auto', factors: [2, 3, 4, 5, 10], digits: 2, remainder: false, divisorDigits: 1};   // digits: أقصى عدد أرقام للمقسوم في القسمة
 const opCfg = (c, op) => { const k = Object.assign({}, OP_DEFAULT, (c.ops && c.ops[op]) || {}); if (op === 'mul' && k.mode === 'auto') k.mode = 'off'; return k; };
 const opEnabled = (c, op) => { const k = opCfg(c, op), lv = levelRaw(c); return op === 'mul' ? k.mode === 'on' && lv >= OP_MANUAL_LEVEL.mul : k.mode === 'on' || (k.mode === 'auto' && lv >= OP_AUTO_LEVEL[op]); };
-const skillEnabled = (c, s) => s === 'm_mul' ? opEnabled(c, 'mul') : s === 'm_div' ? opEnabled(c, 'div') : true;
+const skillEnabled = (c, s) => s === 'm_mul' ? opEnabled(c, 'mul') && levelDone(c, 5) : s === 'm_div' ? opEnabled(c, 'div') && levelDone(c, 5) : true;
 // أقسام ملف الطفل: كل قسم زر، ويُحفظ القسم المفتوح فقط
 const KID_SECS = [['profile', '👤 البيانات والجلسة'], ['letters', '🔤 الحروف'], ['math', '➕➖ الجمع والطرح'], ['ops', '✖️➗ الضرب والقسمة'], ['voice', '🔊 الصوت والقرآن'], ['pages', '📄 الصفحات']];
 const OP_NAMES = {mul: '✖️ الضرب', div: '➗ القسمة'};
@@ -1774,6 +1775,7 @@ function kidSecHtml(c, sec){
 }
 function skillAllowed(c, s){
   if (!skillEnabled(c, s)) return false;
+  if (skillLevel(s) > 5) return true; // مهارات ما بعد المستوى الخامس: شرطها اجتياز المستوى الخامس (في skillEnabled)
   return kidLevel(c) >= skillLevel(s);
 }
 // ترقية تلقائية للمستوى: آخر ٣٠ إجابة (بعد آخر تغيير للمستوى) على تمارين هذا المستوى،
