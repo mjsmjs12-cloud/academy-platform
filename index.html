@@ -1639,9 +1639,15 @@ function levelResults(c){
   const lv = kidLevel(c), since = c.levelSince || 0;
   return allResults(c.id).filter(r => (r.t || 0) >= since && lv >= skillLevel(r.s));
 }
+// ===== إتقان المستوى: لا يُفتح المستوى التالي إلا بعد إتقان كل مهارات المستوى الحالي =====
+const levelSkills = (c, lv) => Object.keys(SKILLS).filter(s => skillLevel(s) === lv && skillEnabled(c, s));
+const levelDoneCount = (c, lv) => { const rs = allResults(c.id), list = levelSkills(c, lv); return {done: list.filter(s => skillStatus(rs, s) === 'mastered').length, total: list.length}; };
+const levelDone = (c, lv) => { const t = levelDoneCount(c, lv); return t.total > 0 && t.done === t.total; };
+const levelOpen = (c, n) => { for (let i = 1; i < n; i++) if (!levelDone(c, i)) return false; return true; };
 // شروط الترقية (مشتركة بين الترقية التلقائية واقتراح ولي الأمر)
 function levelUpReady(c){
   if (kidLevel(c) >= 5) return false;
+  if (!levelDone(c, kidLevel(c))) return false;
   if (levelMasteryShare(c) < 0.6) return false;
   const rs = levelResults(c).slice(-LEVEL_UP.answers);
   if (rs.length < LEVEL_UP.answers) return false;
@@ -2044,7 +2050,7 @@ function finishRun(){
 
 // ===== عرض الواجهات =====
 const view = () => $('#view');
-const UI = {ptab:'reports', pchild:null, editWord:null, wfilter:'all', parentOk:false, story:null, comp:null, pickProfile:null};
+const UI = {ptab:'reports', pchild:null, editWord:null, wfilter:'all', parentOk:false, story:null, comp:null, pickProfile:null, kidStats:false};
 // إيقاف تلاوة القرآن عند مغادرة صفحتها
 function stopQuranAudio(){ if (QA) { try { QA.pause(); } catch (e) {} } if (UI.q) UI.q.playing = false; }
 // ===== التنقل والرجوع: زر الرجوع في الجهاز والزر الداخلي يعودان للشاشة السابقة =====
@@ -2115,39 +2121,53 @@ function renderAchievements(){
   <div class="tiles-grid"><button class="big-tile main" data-act="compHome"><span class="em">🏆</span>مسابقة بين البنات</button></div>`;
 }
 let CUR_CID = null; // الطفلة المعروضة الآن، لاختيار صوتها
+// إعدادات الطفلة: اختيار المستوى مع حالة كل مستوى
+function renderKidSettings(id){
+  const c = CH(id), cur = levelRaw(c);
+  const rows = LEVEL_LABELS5.map((l, i) => {
+    const n = i + 1, open = levelOpen(c, n), t = levelDoneCount(c, n);
+    const action = n === cur ? '<span class="pill">الحالي</span>' : open ? `<button class="btn sm ok" data-act="setMyLevel" data-id="${esc(id)}" data-n="${n}">اختيار</button>` : '<span class="muted">🔒 مغلق</span>';
+    return `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc;gap:8px;flex-wrap:wrap"><div><b>${l}</b> <span class="muted" style="font-size:.85em">${t.done} من ${t.total} مهارات متقنة</span></div>${action}</div>`;
+  }).join('');
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  <div class="hero"><h1>⚙️ إعداداتي</h1><div class="muted">المستوى الحالي: ${LEVEL_LABELS5[cur - 1]}</div></div>
+  <div class="card"><h3>🎚️ مستواي</h3><p class="muted">تظهر مهارات المستوى المختار ومهارات المستويات قبله فقط. لا يُفتح المستوى التالي إلا بعد إتقان كل مهارات المستوى الحالي.</p>${rows}</div>`;
+}
 function renderChild(id){
   CUR_CID = id;
   const c = CH(id), p = P(id), plan = buildDailyQueue(c), ts = timeStats(id), rs = allResults(id);
   applyTheme(c.theme || null);
   const due = Object.values(p.items).filter(it => (it.x + it.a) > 0 && it.due <= Date.now() && it.box < 3).length;
   const mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
-  // الترتيب: التنقل ← الدرس اليومي ← العدادات ← الأقسام ← الإعدادات (لون الشاشة في الأسفل)
+  // الترتيب: التنقل ← الترحيب ← زر الإحصائيات ← الدرس اليومي ← المواد ← الأدوات والإعدادات ← لوحة ولي الأمر
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
   ${UI.pickProfile === id ? `<div class="card" style="text-align:center"><b>🖌️ اختاري لون ملفك:</b>
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
   <div class="muted">اليوم ${plan.day}: ${esc(plan.title)}${due ? ` • ${due} عناصر للمراجعة` : ''}</div></div>
+  <div class="row center" style="margin:8px 0"><button class="btn sm ${UI.kidStats ? '' : 'ghost'}" data-act="kidStats" data-id="${esc(id)}">📊 إحصائيتي</button></div>
+  ${UI.kidStats ? kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')]) : ''}
   <div class="tiles-grid">
     <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
   </div>
-  <div class="card" style="text-align:center"><b>🎚️ مستواي</b> <span class="muted">اختاري المستوى، وتظهر لك مهاراته ومهارات المستويات قبله فقط</span>
-    <div class="row center" style="flex-wrap:wrap;gap:6px;margin-top:8px">${LEVEL_LABELS5.map((l, i) => `<button class="btn sm ${levelRaw(c) === i + 1 ? '' : 'ghost'}" data-act="setMyLevel" data-id="${esc(id)}" data-n="${i + 1}">${l}</button>`).join('')}</div></div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
-  ${kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')])}
   <div class="tiles-grid">
-    <button class="big-tile" data-act="achievements"><span class="em">🏆</span>الإنجازات</button>
-    <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
     <button class="big-tile" data-act="arLab" data-id="${esc(id)}"><span class="em">🔤</span>العربية والقراءة</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="en"><span class="em">🅰️</span>English</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="m"><span class="em">🔢</span>الرياضيات</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="wr"><span class="em">✏️</span>الكتابة والإملاء</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="kn"><span class="em">🌍</span>عالم المعرفة</button>
-    <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
-    <button class="big-tile main" style="background:linear-gradient(135deg,#f6c453,#f39a5b)" data-act="myStars" data-id="${esc(id)}"><span class="em">🏆</span>إنجازاتي</button>
-    <button class="big-tile" data-act="smart" data-id="${esc(id)}"><span class="em">🧠</span>المعلمة الذكية</button>
-    <button class="big-tile" data-act="guardianLogin"><span class="em">⚙️</span>لوحة ولي الأمر</button>
   </div>
+  <div class="tiles-grid">
+    <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
+    <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
+    <button class="big-tile" data-act="smart" data-id="${esc(id)}"><span class="em">🧠</span>المعلمة الذكية</button>
+    <button class="big-tile" data-act="achievements"><span class="em">🏆</span>الإنجازات</button>
+    <button class="big-tile main" style="background:linear-gradient(135deg,#f6c453,#f39a5b)" data-act="myStars" data-id="${esc(id)}"><span class="em">🏆</span>إنجازاتي</button>
+    <button class="big-tile" data-act="kidSettings" data-id="${esc(id)}"><span class="em">⚙️</span>إعداداتي (المستوى)</button>
+  </div>
+  <div class="row center" style="margin-top:12px"><button class="btn ghost sm" data-act="guardianLogin">🔒 لوحة ولي الأمر</button></div>
 `;
 }
 // الأسماء الحسنى (99) مع معنى مختصر، والأنبياء (25) مع سطر تعريفي. القصص والفيديوهات يضيفها ولي الأمر ويوافق عليها
@@ -3870,9 +3890,12 @@ const ACT = {
   // اختيار المستوى من الطفلة نفسها، بنفس أثر التغيير من ملف البنت
   setMyLevel: d => {
     const c = CH(d.id), n = +d.n; if (!c || !n || n === levelRaw(c)) return;
+    if (n > levelRaw(c) && !levelOpen(c, n)) { const miss = [1, 2, 3, 4].find(i => i < n && !levelDone(c, i)); return toast('أكملي مهارات ' + LEVEL_LABELS5[miss - 1] + ' أولاً'); }
     c.level = n; c.levelSince = Date.now(); const m = LEVEL_MATH[n - 1]; c.mathMax = m; c.addMax = m; c.subMax = m;
-    save(); toast('تم اختيار المستوى: ' + LEVEL_LABELS5[n - 1] + ' ✅'); renderChild(d.id);
+    save(); toast('تم اختيار المستوى: ' + LEVEL_LABELS5[n - 1] + ' ✅'); renderKidSettings(d.id);
   },
+  kidStats: d => { UI.kidStats = !UI.kidStats; renderChild(d.id); },
+  kidSettings: d => go(() => renderKidSettings(d.id)),
   profilePick: d => { UI.pickProfile = UI.pickProfile === d.id ? null : d.id; renderChild(d.id); },
   profileColor: d => { const c = CH(d.id); if (!c) return; c.color = d.c; c.colorSet = true; UI.pickProfile = null; save(); toast('تم تغيير لون ملفك ✨'); renderChild(d.id); },
   girlColor: d => { const c = CH(d.id); if (!c) return; c.theme = d.c; applyTheme(c.theme); save(); toast('تم تغيير اللون 🎨'); renderChild(d.id); },
