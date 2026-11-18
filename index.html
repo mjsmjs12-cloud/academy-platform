@@ -1816,7 +1816,7 @@ async function useRecovery(){
   if ((await sha256hex(norm)) !== S.settings.recHash) return toast('رمز الاسترداد غير صحيح');
   S.settings.pin = ''; delete S.settings.recHash; S.settings.agents = []; save();
   toast('أُلغي رمز ولي الأمر القديم، أنشئي رمزاً جديداً');
-  await openParent();
+  renderLogin();
 }
 function securityHtml(){
   return `<div class="card"><h3>🔑 استرداد رمز ولي الأمر</h3><p class="muted">إذا نسيتِ الرمز يُستخدم رمز الاسترداد لإلغائه وإنشاء رمز جديد. الرمز الذي أُنشئ قبل هذا التحديث لا يملك رمز استرداد، فأنشئي واحداً الآن.</p><button class="btn ghost sm" data-act="newRecovery">🔑 إنشاء رمز استرداد جديد</button></div>`;
@@ -2026,7 +2026,16 @@ function renderLogin(){
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
   </div>
-  <div class="card" style="margin-top:12px;text-align:center"><button class="btn ghost" data-act="openParent">⚙️ صفحة ولي الأمر</button><p class="muted" style="font-size:13px">الإصدار ${APP_VERSION} • يعمل دون إنترنت</p></div>`;
+  <div class="card" style="max-width:420px;margin:12px auto">
+    <h3>🔐 دخول مدير النظام (الوالد)</h3>
+    <p class="muted" style="font-size:13px">${S.settings.pin ? 'اسم مدير النظام ورمزه الخاص' : 'أول مرة: اكتبي اسم مدير النظام ورمزاً خاصاً لإنشاء الحساب'}</p>
+    <label class="f">اسم مدير النظام</label><input id="aname" autocomplete="off" value="${esc(S.settings.adminName || '')}">
+    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="acode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <div class="row center" style="margin-top:12px"><button class="btn" data-act="adminLogin">${S.settings.pin ? '🔓 دخول المدير' : '➕ إنشاء الحساب'}</button>${S.settings.pin ? '<button class="btn ghost sm" data-act="recoverAdmin">نسيت الرمز؟</button>' : ''}</div>
+    <p id="amsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
+  </div>
+  <p class="muted center" style="font-size:13px">ولي الأمر يدخل من زر «لوحة ولي الأمر» داخل صفحة الطفلة.</p>
+  <p class="muted center" style="font-size:13px">الإصدار ${APP_VERSION} • يعمل دون إنترنت</p>`;
 }
 // إنجازات: ترتيب الأطفال بالنجوم وعدد المهارات المتقنة (بدون تفاصيل أخرى)
 function renderAchievements(){
@@ -2072,7 +2081,7 @@ function renderChild(id){
     <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
     <button class="big-tile main" style="background:linear-gradient(135deg,#f6c453,#f39a5b)" data-act="myStars" data-id="${esc(id)}"><span class="em">🏆</span>إنجازاتي</button>
     <button class="big-tile" data-act="smart" data-id="${esc(id)}"><span class="em">🧠</span>المعلمة الذكية</button>
-    <button class="big-tile" data-act="openParent"><span class="em">⚙️</span>لوحة ولي الأمر</button>
+    <button class="big-tile" data-act="guardianLogin"><span class="em">⚙️</span>لوحة ولي الأمر</button>
   </div>
 `;
 }
@@ -2971,7 +2980,7 @@ const AGENT_TEMPLATES = {
   full:    {label:'ولي أمر كامل', perms:['kids','reports','notes','content','print']}
 };
 // الصفحة -> الصلاحية المطلوبة لفتحها
-const TAB_PERM = {kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print'};
+const TAB_PERM = {dash:'reports', kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print'};
 // أفعال الحذف: تُمنح بصلاحية "حذف" فقط
 const DELETE_ACTS = new Set(['delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
 // قائمة الوكلاء، مع ترحيل رمز ولي الأمر القديم إلى وكيل واحد
@@ -3033,6 +3042,12 @@ function attendanceHtml(c){
     <p class="muted">آخر الدخول: ${recent.length ? esc(recent.join(' • ')) : 'لا يوجد'}</p>` : ''}
   </div>`;
 }
+// أيام الحضور في آخر 7 أيام (بعد بداية التتبع فقط)
+function weekPresent(c){
+  const att = c.attend || {}, from = c.trackFrom || dayKeyOf(new Date()); let n = 0;
+  for (let i = 0; i < 7; i++) { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i); const k = dayKeyOf(d); if (k >= from && (att[k] || 0) > 0) n++; }
+  return n;
+}
 // تنبيهات الدخول لبنات الوكيل (أو كل البنات للمدير)
 function alertsHtml(){
   const rows = visibleKids().map(c => {
@@ -3048,13 +3063,6 @@ function kidStatusHtml(c){
   const d = daysSince(c);
   return d >= INACTIVE_NOTICE_DAYS ? `<div class="card"><b>🔔 لم تدخل منذ ${d} يوم</b></div>` : '';
 }
-// دور الدخول: مدير النظام، أو وكيل نشط، أو وكيل منتهٍ
-function pinRole(input){
-  if (pinMatches(input)) return {role:'admin'};
-  const h = hashPin(input), a = agents().find(x => x.pin === h);
-  if (!a) return null;
-  return isActive(a) ? {role:'guardian', agent:a} : {role:'expired', agent:a};
-}
 const currentAgent = () => agents().find(x => x.id === UI.agentId) || null;
 // البنات المرئيات: المدير يرى الكل، والوكيل يرى البنات المسندة إليه فقط (وقد يكون للوكيل أكثر من بنت)
 const visibleKids = () => { if (UI.parentRole !== 'guardian') return S.children; const a = currentAgent(); return a ? S.children.filter(c => a.kids.includes(c.id)) : []; };
@@ -3069,7 +3077,7 @@ function guardDenied(act, d){
   if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
-  if ((act === 'pchild' || act === 'openKid') && !a.kids.includes(d.id)) return 'هذه البنت غير مسندة لهذا الوكيل';
+  if ((act === 'pchild' || act === 'openKid' || act === 'dashReport') && !a.kids.includes(d.id)) return 'هذه البنت غير مسندة لهذا الوكيل';
   return null;
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
@@ -3099,6 +3107,7 @@ function savePinFromForm(){
   const el = $('#gpin'); if (!el) return;
   const v = (el.value || '').trim(), clr = !!($('#gpinclear') && $('#gpinclear').checked);
   if (clr) { S.settings.pin = ''; S.settings.agents = []; } else if (v) S.settings.pin = hashPin(v);
+  const an = (($('#gadmname') || {}).value || '').trim(); if (an) S.settings.adminName = an;
 }
 let parentTimer = null;
 function armParentTimer(){
@@ -3106,40 +3115,21 @@ function armParentTimer(){
   parentTimer = setTimeout(() => { UI.parentOk = false; if (document.querySelector('.tabs')) { toast('أُغلقت لوحة ولي الأمر تلقائياً للأمان'); go(renderHome); } }, 5 * 60 * 1000);
 }
 document.addEventListener('click', () => { if (UI.parentOk) armParentTimer(); });
-async function openParent(){
-  // الدخول يتطلب رمزاً: إن لم يكن هناك رمز بعد يُطلب إنشاؤه أولاً
-  if (!UI.parentOk) {
-    UI.parentRole = 'admin'; UI.agentId = null;
-    if (!S.settings.pin) {
-      const c = await modal('🔐 إنشاء رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="أدخلي رمزاً" style="text-align:center;font-size:22px">', [{label:'حفظ', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
-      if (!c.v || !c.input) { toast('يجب إنشاء رمز لدخول لوحة ولي الأمر'); return; }
-      S.settings.pin = hashPin(c.input); save(); toast('تم حفظ رمز ولي الأمر ✅');
-      await showRecovery(await makeRecovery()); // رمز استرداد يُعرض مرة واحدة
-    } else {
-      const r = await modal('🔒 رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="الرمز" style="text-align:center;font-size:22px">', [{label:'دخول', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
-      if (!r.v) return;
-      const got = pinRole(r.input);
-      if (got && got.role === 'expired') { toast('انتهت وكالة هذا الوكيل، اطلبي من مدير النظام تجديدها'); return; }
-      UI.parentRole = got ? got.role : null; UI.agentId = got && got.agent ? got.agent.id : null;
-      if (!UI.parentRole) {
-        const f = await modal('الرمز غير صحيح', 'هل نسيتِ الرمز؟ يمكنك استخدام رمز الاسترداد.', [{label:'استخدام رمز الاسترداد', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
-        if (f.v) await useRecovery();
-        return;
-      }
-    }
-  }
-  UI.parentOk = true; UI.kid = null; NAV.length = 0; CUR = null; armParentTimer();
+// فتح لوحة ولي الأمر بعد التحقق: مدير النظام أو وكيل، وتبدأ من لوحة التحكم
+function enterParent(role, agent){
+  UI.parentOk = true; UI.parentRole = role; UI.agentId = agent ? agent.id : null;
+  UI.kid = null; NAV.length = 0; CUR = null; UI.ptab = 'dash'; armParentTimer();
   if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
   go(renderParent);
 }
 // قائمة صفحة ولي الأمر مجمّعة حسب نوع البيانات: الأطفال والمتابعة، ثم المحتوى، ثم الأدوات، ثم النظام
 const PARENT_GROUPS = [
-  ['👧 الأطفال والمتابعة', ['kids','reports','notes']],
+  ['👧 الأطفال والمتابعة', ['dash','kids','reports','notes']],
   ['📚 المحتوى', ['words','adhkar','content','yt','tg']],
   ['🖨️ الأدوات', ['print']],
   ['⚙️ النظام', ['settings']]
 ];
-const PARENT_LABELS = {kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+const PARENT_LABELS = {dash:'🏠 لوحة التحكم', kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 function renderParent(){
   applyTheme(); ensureActivity();
   const guard = UI.parentRole === 'guardian';
@@ -3302,6 +3292,22 @@ function recommendations(cid){
 // أقسام الإعدادات: [المفتاح، الرمز، الاسم]
 const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز المدير'],['agents','👥','الوكلاء وصلاحياتهم'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
 const PARENT = {
+  // لوحة تحكم ولي الأمر: ملخص كل بنت مسندة إليه، مع الوصول إلى تقريرها الكامل
+  dash(){
+    const kids = visibleKids(), admin = UI.parentRole === 'admin';
+    if (!kids.length) return `<div class="card"><h3>🏠 لوحة التحكم</h3><p class="muted">لا توجد بنات مسندة إليك بعد.</p></div>`;
+    return kids.map(c => {
+      const p = P(c.id), ts = timeStats(c.id), rs = allResults(c.id);
+      const mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
+      const last = c.lastLogin ? new Date(c.lastLogin).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'}) : 'لا يوجد';
+      return `<div class="card" style="border-top:6px solid ${esc(c.color)}"><h3>${esc(c.emoji)} ${esc(c.name)} ${isFrozenNow(c) ? '<span class="pill">🔒 مجمّد</span>' : ''}</h3>
+        ${kpis([kpi('⭐', 'النجوم', fmt(p.stars || 0), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), kpi('🏆', 'الفوز بالمسابقات', fmt(compWins(c.id)), 'c1')])}
+        <p>📅 <b>حضور هذا الأسبوع:</b> ${weekPresent(c)} من 7 أيام</p>
+        <p>🕒 <b>آخر دخول:</b> ${esc(last)}${admin ? ` • <b>عدد الدخول:</b> ${fmt(c.loginCount || 0)}` : ''}</p>
+        <p class="muted">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</p>
+        <div class="row"><button class="btn sm" data-act="dashReport" data-id="${esc(c.id)}">📊 التقرير الكامل</button></div></div>`;
+    }).join('');
+  },
   reports(){
     return `${overviewKpis()}${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
   },
@@ -3399,7 +3405,8 @@ const PARENT = {
     ${sec('security', `<div class="card"><h3>🔐 رمز مدير النظام</h3>
       <label class="f">رمز مدير النظام (اتركيه فارغاً للإبقاء على الرمز الحالي)</label><input id="gpin" type="password" inputmode="numeric" value="" placeholder="${S.settings.pin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : 'لا يوجد رمز بعد'}">
       <label class="chk" style="margin-top:6px"><input type="checkbox" id="gpinclear"> 🗑️ إزالة الرمز</label>
-</div>${securityHtml()}`)}
+
+      <label class="f" style="margin-top:10px">اسم مدير النظام (يُطلب مع الرمز عند الدخول)</label><input id="gadmname" value="${esc(S.settings.adminName || '')}"></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
@@ -4122,7 +4129,46 @@ const ACT = {
   copyText: d => copyText(d.t),
   shareText: d => { if (navigator.share) navigator.share({text:d.t}).catch(() => {}); else copyText(d.t); },
   // ولي الأمر
-  openParent,
+  adminLogin: () => {
+    const msg = $('#amsg'), name = (($('#aname') || {}).value || '').trim(), code = (($('#acode') || {}).value || '').trim();
+    if (!code) { msg.textContent = 'أدخلي الرمز'; return; }
+    if (!S.settings.pin) {
+      if (!name) { msg.textContent = 'أدخلي اسم مدير النظام'; return; }
+      if (code.length < 4) { msg.textContent = 'الرمز 4 أرقام على الأقل'; return; }
+      S.settings.adminName = name; S.settings.pin = hashPin(code); save();
+      (async () => { await showRecovery(await makeRecovery()); enterParent('admin', null); })();
+      return;
+    }
+    if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
+    const nameOk = !S.settings.adminName || normName(name) === normName(S.settings.adminName);
+    if (!nameOk || !pinMatches(code)) {
+      UI.loginFails = (UI.loginFails || 0) + 1;
+      if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
+      msg.textContent = 'الاسم أو الرمز غير صحيح';
+      return;
+    }
+    UI.loginFails = 0;
+    if (!S.settings.adminName && name) { S.settings.adminName = name; save(); }
+    enterParent('admin', null);
+  },
+  recoverAdmin: () => useRecovery(),
+  // ولي الأمر: من صفحة الطفلة برمزه الخاص
+  guardianLogin: async () => {
+    if (UI.lockUntil > Date.now()) return toast('انتظري قليلاً ثم حاولي مرة أخرى');
+    const r = await modal('🔒 لوحة ولي الأمر', '<input type="password" inputmode="numeric" placeholder="رمز ولي الأمر" style="text-align:center;font-size:22px">', [{label:'دخول', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
+    if (!r.v) return;
+    const h = hashPin((r.input || '').trim()), a = agents().find(x => x.pin === h);
+    if (!a) {
+      UI.loginFails = (UI.loginFails || 0) + 1;
+      if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
+      return toast('الرمز غير صحيح');
+    }
+    if (!isActive(a)) return toast('انتهت وكالتك، اطلبي من مدير النظام تجديدها');
+    UI.loginFails = 0;
+    enterParent('guardian', a);
+  },
+  // لوحة التحكم: فتح تقرير طفلة محددة
+  dashReport: d => { UI.pchild = d.id; UI.ptab = 'reports'; renderParent(); },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
