@@ -275,6 +275,22 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .set-bar-t{flex:1;min-width:150px}
 .set-bar-t h3{margin:0}
 .set-bar-t small{display:block;font-size:12px}
+.dash-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.dsum{background:var(--card);border-radius:14px;padding:12px 8px;text-align:center;border:1px solid rgba(0,0,0,.06)}
+.dsum b{display:block;font-size:22px}
+.dsum span{font-size:12px;opacity:.7}
+.dsum.warn{border-color:#f0b429}
+.dsum.bad{border-color:#e35d5d}
+.dash-alert{border-inline-start:4px solid #f0b429}
+.dash-alert div{padding:3px 0;font-size:14px}
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.dash-card{background:var(--card);border-radius:18px;padding:14px;border-top:6px solid var(--kc,#e75a8c);box-shadow:0 4px 16px rgba(120,40,80,.08)}
+.dash-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.dash-top h3{margin:0;font-size:17px}
+.dash-av{font-size:30px;line-height:1}
+.dash-meta{font-size:13px;margin:6px 0}
+.dash-act{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+@media (max-width:520px){.dash-sum{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:420px){.kpis{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.kpi .ico{width:42px;height:42px;font-size:21px}}
 
 /* ===== الكؤوس وقائمة الفائزين ===== */
@@ -3592,20 +3608,41 @@ const PARENT = {
         <div class="row" style="gap:6px;flex-wrap:wrap">${m.read ? '' : `<button class="btn sm ghost" data-act="inboxRead" data-id="${esc(m.id)}">✅ تم التعامل</button>`}${frozen ? `<button class="btn sm ok" data-act="reactivateKid" data-id="${esc(kid.id)}">🔓 إعادة تفعيل ${esc(kid.name)}</button>` : ''}<button class="btn sm danger" data-act="inboxDel" data-id="${esc(m.id)}">🗑️ حذف</button></div></div>`;
     }).join('')}</div>`;
   },
+  // لوحة التحكم: ملخص عام، تنبيهات، وبطاقة لكل بنت مع دخول مباشر كالطفلة
   dash(){
     const kids = visibleKids(), admin = UI.parentRole === 'admin';
     if (!kids.length) return `<div class="card"><h3>🏠 لوحة التحكم</h3><p class="muted">لا توجد بنات مسندة إليك بعد.</p></div>`;
-    return kids.map(c => {
+    const rows = kids.map(c => {
       const p = P(c.id), ts = timeStats(c.id), rs = allResults(c.id);
       const mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
+      return { c, p, ts, mastered, frozen: isFrozenNow(c), idle: daysSince(c) };
+    });
+    const frozenN = rows.filter(r => r.frozen).length, idleN = rows.filter(r => !r.frozen && r.idle >= 3).length;
+    const todayAll = rows.reduce((a, r) => a + (r.ts.today || 0), 0);
+    const summary = `<div class="dash-sum">
+      <div class="dsum"><b>${kids.length}</b><span>بنات</span></div>
+      <div class="dsum"><b>${fmt(todayAll)}</b><span>دقيقة اليوم</span></div>
+      <div class="dsum ${idleN ? 'warn' : ''}"><b>${idleN}</b><span>غياب 3 أيام فأكثر</span></div>
+      <div class="dsum ${frozenN ? 'bad' : ''}"><b>${frozenN}</b><span>حسابات مجمّدة</span></div></div>`;
+    const alerts = [
+      ...rows.filter(r => r.frozen).map(r => `🔒 ${esc(r.c.name)}: الحساب مجمّد لعدم الدخول`),
+      ...rows.filter(r => !r.frozen && r.idle >= 3).map(r => `⚠️ ${esc(r.c.name)}: لم تدخل منذ ${r.idle} أيام`)
+    ];
+    const alertBox = alerts.length ? `<div class="card dash-alert"><h4 style="margin:0 0 6px">🔔 تنبيهات</h4>${alerts.map(a => `<div>${a}</div>`).join('')}</div>` : '';
+    const cards = rows.map(({ c, p, ts, mastered, frozen }) => {
       const last = c.lastLogin ? new Date(c.lastLogin).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'}) : 'لا يوجد';
-      return `<div class="card" style="border-top:6px solid ${esc(c.color)}"><h3>${esc(c.emoji)} ${esc(c.name)} ${isFrozenNow(c) ? '<span class="pill">🔒 مجمّد</span>' : ''}</h3>
+      const lvl = LEVEL_LABELS5[kidLevel(c) - 1] || '';
+      return `<div class="dash-card" style="--kc:${esc(c.color)}">
+        <div class="dash-top"><span class="dash-av">${esc(c.emoji)}</span><div style="flex:1;min-width:0"><h3>${esc(c.name)}</h3><small class="muted">${esc(lvl)}</small></div>${frozen ? '<span class="pill">🔒 مجمّد</span>' : ''}</div>
         ${kpis([kpi('⭐', 'النجوم', fmt(p.stars || 0), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), kpi('🏆', 'الفوز بالمسابقات', fmt(compWins(c.id)), 'c1')])}
-        <p>📅 <b>حضور هذا الأسبوع:</b> ${weekPresent(c)} من 7 أيام</p>
-        <p>🕒 <b>آخر دخول:</b> ${esc(last)}${admin ? ` • <b>عدد الدخول:</b> ${fmt(c.loginCount || 0)}` : ''}</p>
-        <p class="muted">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</p>
-        <div class="row"><button class="btn sm" data-act="dashReport" data-id="${esc(c.id)}">📊 التقرير الكامل</button></div></div>`;
+        <div class="dash-meta">📅 حضور الأسبوع: <b>${weekPresent(c)}/7</b> • 🕒 آخر دخول: <b>${esc(last)}</b>${admin ? ` • 🔢 ${fmt(c.loginCount || 0)}` : ''}</div>
+        <div class="dash-meta muted">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</div>
+        <div class="dash-act">
+          <button class="btn sm" data-act="kidAs" data-id="${esc(c.id)}" ${frozen ? 'disabled' : ''}>👁️ دخول كالطفلة</button>
+          <button class="btn sm ghost" data-act="dashReport" data-id="${esc(c.id)}">📊 التقرير الكامل</button>
+        </div></div>`;
     }).join('');
+    return `${summary}${alertBox}<div class="dash-grid">${cards}</div>`;
   },
   reports(){
     return `${overviewKpis()}${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
@@ -4529,6 +4566,13 @@ const ACT = {
   },
   // لوحة التحكم: فتح تقرير طفلة محددة
   dashReport: d => { UI.pchild = d.id; UI.ptab = 'reports'; renderParent(); },
+  // دخول ولي الأمر إلى صفحة الطفلة مباشرة (بدون رمز الطفلة ودون تسجيل دخول)
+  kidAs: d => {
+    const c = CH(d.id);
+    if (!c || !visibleKids().some(k => k.id === c.id)) return toast('هذه البنت غير متاحة لك');
+    if (isFrozenNow(c)) return toast('الحساب مجمّد، فعّليه أولاً من مدير النظام');
+    UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
+  },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
