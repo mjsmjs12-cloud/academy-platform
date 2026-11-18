@@ -3664,7 +3664,7 @@ const PARENT = {
     return `${summary}${alertBox}<div class="dash-grid">${cards}</div>`;
   },
   reports(){
-    return `${overviewKpis()}${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
+    return `${overviewKpis()}${compareHTML()}${childPicker()}${UI.pchild && CH(UI.pchild) ? skillOverrideCardHtml(UI.pchild) : ''}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
   },
   words(){
     const e = UI.editWord ? S.words.find(w => w.id === UI.editWord) : null, f = UI.wfilter;
@@ -5370,6 +5370,12 @@ function overrideSelect(cid, s){
   const ov = (P(cid).overrides || {})[s] || '';
   const opt = (v, t) => `<option value="${v}" ${ov === v ? 'selected' : ''}>${t}</option>`;
   return `<select data-change="skillOverride" data-id="${esc(cid)}" data-skill="${s}" aria-label="تعديل حالة المهارة">${opt('', 'تلقائي')}${opt('mastered', 'متقنة')}${opt('learning', 'قيد التعلم')}${opt('support', 'تحتاج إلى دعم')}</select>`;
+}
+// بطاقة حالة المهارات في صفحة ولي الأمر: كل المواد، مع تعديل الحالة يدوياً
+function skillOverrideCardHtml(cid){
+  if (!UI.parentOk) return '';
+  const body = Object.entries(SKILL_PATH).map(([sub, path]) => `<h4>${SUBJECTS[sub].em} ${SUBJECTS[sub].n}</h4>${skillCompareRows(cid, path)}`).join('');
+  return `<div class="card"><h3>🎛️ حالة المهارات وتعديلها يدوياً</h3><p class="muted">تلقائي = الحالة المحسوبة من الأداء، وأي تعديل يُطبَّق فوراً على صفحة الطفلة.</p>${body}</div>`;
 }
 function skillCompareRows(cid, list){
   const rs = allResults(cid);
