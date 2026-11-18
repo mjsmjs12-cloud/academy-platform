@@ -1498,7 +1498,7 @@ function pagesSecHtml(c){
       <div><b>${esc(p.title)}</b><div class="muted" style="font-size:.85em">${esc(p.desc || p.name)} · ${fmt(Math.max(1, Math.round((p.size || 0) / 1024)))} كيلوبايت</div></div>
       <div class="row"><button class="btn sm ok" data-act="openPage" data-pid="${esc(p.id)}" data-cid="${id}">▶️ فتح</button><button class="btn sm danger" data-act="delPage" data-pid="${esc(p.id)}" data-cid="${id}">🗑️ حذف</button></div></div>`).join('')
     : '<p class="muted">لا توجد صفحات مضافة بعد</p>';
-  return `<div class="card"><h3>📄 الصفحات المضافة</h3>
+  return `${lessonsAdminHtml(c)}<div class="card"><h3>📄 الصفحات المضافة</h3>
       <p class="muted">اختاري ملف HTML أو Markdown (.md) من جهازك، فتصبح صفحة جديدة لهذه البنت وتعمل بدون إنترنت. لا يوجد حد لحجم الملف.</p>
       <label class="btn ok" style="margin-top:8px">➕ إضافة صفحة من ملف<input type="file" accept=".md,.markdown,.txt,.html,.htm" data-change="kidPage" data-id="${id}" style="display:none"></label>
       ${rows}</div>`;
@@ -4292,6 +4292,8 @@ const ACT = {
     delete w.img; delete w.imgCredit; delete IMG[w.id]; await idbDel('wimg_' + w.id).catch(() => {});
     save(); renderParent(); toast('أُزيلت الصورة');
   },
+  lessons: d => go(() => renderLessons(d.id)),
+  lessonOpen: d => { const l = BUILTIN_LESSONS.find(x => x.id === d.lid); if (l) openLesson(l); },
   openPage: async d => {
     const c = CH(d.cid), p = c && (c.pages || []).find(x => x.id === d.pid); if (!p) return;
     const blob = await idbGet('page_' + p.id);
@@ -4433,6 +4435,13 @@ const ACT = {
   resetAll: async () => { if (!(await confirmBox('تصفير كل البيانات؟', 'يعود البرنامج إلى حالته الأولى.'))) return; exportBackup(); S = defaultState(); applyTheme(); UI.pchild = S.children[0].id; save(); renderParent(); toast('تم التصفير'); }
 };
 const CHANGE = {
+  lessonToggle: t => {
+    if (!canManageLessons()) { toast('إخفاء الدروس يحتاج صلاحية المحتوى'); t.checked = !t.checked; return; }
+    const c = CH(t.dataset.cid); if (!c) return;
+    c.hiddenLessons = (c.hiddenLessons || []).filter(x => x !== t.dataset.lid);
+    if (!t.checked) c.hiddenLessons.push(t.dataset.lid);
+    save(); toast(t.checked ? 'ظاهر للطفلة ✅' : 'مخفي عن الطفلة');
+  },
   // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
   agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
@@ -4925,9 +4934,37 @@ function renderSmart(id){
   <div class="card"><h3>🎯 تحديد المستوى ومركز القياس</h3><p class="muted">${pl ? 'آخر اختبار تحديد: ' + new Date(pl.at).toLocaleDateString('ar') : 'لم يُجرَ اختبار تحديد المستوى بعد'}</p>
     <div class="row"><button class="btn" data-act="placement" data-id="${esc(id)}">اختبار تحديد المستوى</button><button class="btn ghost" data-act="measure" data-id="${esc(id)}">مركز القياس</button><button class="btn ghost" data-act="customTest" data-id="${esc(id)}">اختبار مخصص</button></div></div>`;
 }
+// ===== الدروس المدمجة: تُعرض حسب مستوى الطفلة، ويمكن لمدير النظام أو الوكيل (صلاحية المحتوى) إخفاء أي درس عنها =====
+// audience: kid = تظهر للطفلة في مكتبتها، parent = للوالدين فقط
+const BUILTIN_LESSONS = [{"id": "bl-letters", "title": "الحروف والأصوات: أ ب ت", "desc": "درس تأسيسي لأصوات الحروف الثلاثة الأولى", "minLevel": 1, "audience": "kid", "kind": "md", "body": "---\ntitle: الحروف والأصوات: أ ب ت\ndesc: درس تأسيسي لأصوات الحروف الثلاثة الأولى مع أمثلة ونشاط تمييز\n---\n\n> الهدف: أن تتعرّف الطفلة على شكل كل حرف وصوته، وأن تميّز بين الباء والتاء.\n\n## حرف الألف (أ)\nالصوت: «أَ» كما في **أسد**.\n\n- كلمات تبدأ بالألف: أسد، أرنب، أم\n- نشاط: قولي صوت الحرف ثلاث مرات، ثم اطلبي منها أن تشير إلى كلمة تبدأ به.\n\n## حرف الباء (ب)\nالصوت: «بَ» كما في **بيت**.\n\n- كلمات تبدأ بالباء: بيت، بطة، باب\n- نشاط: ارسمي حرف الباء بإصبعك في الهواء ثم قولي صوته.\n\n## حرف التاء (ت)\nالصوت: «تَ» كما في **تفاح**.\n\n- كلمات تبدأ بالتاء: تفاح، تمر، توت\n- نشاط: ضعي تفاحة وبيتاً أمامها، واطلبي منها أن تضع يدها على الشيء الذي يبدأ بالتاء.\n\n## تمرين التمييز\nاقرئي الكلمات بصوت واضح، ثم اطلبي من الطفلة أن تختار الإجابة الصحيحة:\n\n1. أي كلمة تبدأ بالباء؟ (أسد، بيت، تفاح) ← **بيت**\n2. أي كلمة تبدأ بالتاء؟ (تمر، أسد، باب) ← **تمر**\n3. أي كلمة تبدأ بالألف؟ (بطة، أرنب، توت) ← **أرنب**\n\n> نصيحة لولي الأمر: كرّري الدرس يومياً لمدة 5 دقائق، وامدحي كل إجابة صحيحة قبل الانتقال إلى التالي.\n"}, {"id": "bl-reading", "title": "القراءة والإملاء: بيتنا", "desc": "نص قصير للقراءة، وكلمات للإملاء", "minLevel": 2, "audience": "kid", "kind": "md", "body": "---\ntitle: القراءة والإملاء: بيتنا\ndesc: نص قصير للقراءة المتدرجة، وكلمات للإملاء مع تمرين إكمال الحرف الناقص\n---\n\n> الهدف: قراءة جملتين قصيرتين بتشكيل بسيط، وكتابة كلمات مألوفة بشكل صحيح.\n\n## القراءة\nاقرئي النص مرة واحدة أمامها، ثم اطلبي منها أن تقرأ كل جملة بعدك.\n\n**بَيْتُنَا كَبِيرٌ.**\n**فِيهِ حَدِيقَةٌ جَمِيلَةٌ.**\n\nأسئلة للفهم:\n- ما وصف البيت؟ ← كبير\n- ماذا في البيت؟ ← حديقة جميلة\n\n## الإملاء\nاكتبي الكلمات التالية بخط واضح، واطلبي من الطفلة أن تكررها بعدك:\n\n- بيت\n- تمر\n- باب\n- بطة\n\n## تمرين إكمال الحرف الناقص\nاكتبي الكلمة مع فراغ، واطلبي منها أن تختار الحرف المناسب:\n\n1. ب _ ت ← **ي** (بيت)\n2. _ م ر ← **ت** (تمر)\n3. ب _ ب ← **ا** (باب)\n\n> نصيحة: إذا أخطأت الطفلة في كلمة، اقرئيها ببطء مع تحريك كل حرف، ثم أعيدي كتابتها أمامها.\n"}, {"id": "bl-game", "title": "لعبة بالونات الحروف", "desc": "لعبة تفاعلية: اضغطي الحرف المطلوب", "minLevel": 1, "audience": "kid", "kind": "html", "body": "<!DOCTYPE html>\n<html lang=\"ar\" dir=\"rtl\">\n<head>\n<meta charset=\"utf-8\">\n<title>لعبة بالونات الحروف</title>\n<style>\n  body { margin: 0; font-family: \"Tajawal\", \"Arial\", sans-serif; background: #fdf2f6; text-align: center; color: #333; }\n  #top { padding: 10px; font-size: 20px; }\n  #target { font-size: 56px; color: #c73f70; font-weight: bold; }\n  #field { position: relative; height: 70vh; overflow: hidden; }\n  .balloon { position: absolute; width: 70px; height: 84px; border-radius: 50%; background: #f7a8c4; color: #fff;\n             font-size: 40px; line-height: 84px; font-weight: bold; cursor: pointer; user-select: none; }\n  #msg { min-height: 26px; font-size: 18px; margin-top: 6px; }\n</style>\n</head>\n<body>\n<div id=\"top\">اضغطي البالون الذي عليه الحرف المطلوب ⭐ <span id=\"score\">0</span></div>\n<div id=\"target\">أ</div>\n<div id=\"field\"></div>\n<div id=\"msg\"></div>\n<script>\n  // لعبة تعليمية: حرف مطلوب، وبالونات تطفو، والإجابة الصحيحة تُكسب نجمة\n  const LETTERS = ['أ', 'ب', 'ت'];\n  const field = document.getElementById('field'), target = document.getElementById('target');\n  const scoreEl = document.getElementById('score'), msg = document.getElementById('msg');\n  let score = 0, rounds = 0, timer = null;\n\n  function newRound() {\n    rounds++;\n    if (rounds > 10) { msg.textContent = 'أحسنتِ! جمعتِ ' + score + ' نجوم 🎉'; clearInterval(timer); return; }\n    const want = LETTERS[Math.floor(Math.random() * LETTERS.length)];\n    target.textContent = want;\n    field.innerHTML = '';\n    LETTERS.forEach((ch, i) => {\n      const b = document.createElement('div');\n      b.className = 'balloon';\n      b.textContent = ch;\n      b.style.left = (10 + i * 30 + Math.random() * 5) + '%';\n      b.style.top = (40 + Math.random() * 40) + '%';\n      b.onclick = () => {\n        if (ch === want) { score++; scoreEl.textContent = score; msg.textContent = 'أحسنتِ ⭐'; setTimeout(newRound, 500); }\n        else { msg.textContent = 'حاولي مرة أخرى'; }\n      };\n      field.appendChild(b);\n    });\n  }\n  newRound();\n<\/script>\n</body>\n</html>\n"}, {"id": "bl-worksheet", "title": "كراسة تتبع الحروف", "desc": "كراسة للطباعة لتتبع الحروف أ ب ت", "minLevel": 1, "audience": "kid", "kind": "html", "body": "<!DOCTYPE html>\n<html lang=\"ar\" dir=\"rtl\">\n<head>\n<meta charset=\"utf-8\">\n<title>كراسة تتبع الحروف: أ ب ت</title>\n<style>\n  body { font-family: \"Tajawal\", \"Arial\", sans-serif; margin: 16px; color: #333; }\n  h2 { text-align: center; color: #c73f70; }\n  .row { display: flex; align-items: center; gap: 12px; border-bottom: 2px dashed #f0b6cc; padding: 12px 0; }\n  .letter { font-size: 80px; color: #ddd; width: 110px; text-align: center; }\n  .lines { flex: 1; }\n  .line { height: 56px; border-bottom: 1px solid #bbb; }\n  .label { width: 70px; font-weight: bold; text-align: center; }\n  @media print { body { margin: 0; } .row { break-inside: avoid; } }\n</style>\n</head>\n<body>\n<h2>كراسة تتبع الحروف</h2>\n<p style=\"text-align:center\">اتبعي الحرف بالقلم، ثم اكتبيه في الخطوط الفارغة.</p>\n<div class=\"row\"><div class=\"label\">أ</div><div class=\"letter\">أ</div><div class=\"lines\"><div class=\"line\"></div><div class=\"line\"></div></div></div>\n<div class=\"row\"><div class=\"label\">ب</div><div class=\"letter\">ب</div><div class=\"lines\"><div class=\"line\"></div><div class=\"line\"></div></div></div>\n<div class=\"row\"><div class=\"label\">ت</div><div class=\"letter\">ت</div><div class=\"lines\"><div class=\"line\"></div><div class=\"line\"></div></div></div>\n</body>\n</html>\n"}, {"id": "bl-guide", "title": "دليل ولي الأمر: كيف نستفيد من الفيديو", "desc": "إرشادات لمتابعة الفيديو التعليمي مع الطفلة", "minLevel": 1, "audience": "parent", "kind": "md", "body": "---\ntitle: دليل ولي الأمر: كيف نستفيد من الفيديو\ndesc: إرشادات قصيرة لمتابعة الفيديوهات التعليمية مع الطفلة\n---\n\n> الفكرة: الفيديو يقدّم الصوت والحرف، والدور الأهم يبقى لولي الأمر في التكرار والمتابعة.\n\n## قبل المشاهدة\n1. اختاري فيديو قصيراً (5 إلى 10 دقائق).\n2. تأكدي من أن الصوت واضح، وأن المكان هادئ.\n\n## أثناء المشاهدة\n- توقفي عند كل حرف، وكرّري صوته مع الطفلة.\n- اطلبي منها أن تشير إلى الحرف في الشاشة أو في الكتاب.\n\n## بعد المشاهدة\n- اسألي: ما الحرف الذي تعلمتِه اليوم؟ وما كلمة تبدأ به؟\n- امدحي المحاولة قبل النتيجة.\n\n## تنبيه\nلا تكتفي بالمشاهدة وحدها. الصوت يُتقن بالتكرار والنطق من الطفلة نفسها.\n"}];
+const lessonsFor = c => BUILTIN_LESSONS.filter(l => l.audience === 'kid' && levelRaw(c) >= l.minLevel && !((c.hiddenLessons || []).includes(l.id)));
+const canManageLessons = () => UI.parentRole === 'admin' || (UI.parentRole === 'guardian' && agentAllows('content'));
+function openLesson(l){
+  const doc = buildPageDoc(l.id + '.' + (l.kind === 'html' ? 'html' : 'md'), l.body);
+  showPage(doc.title || l.title, doc.doc);
+}
+// دروس الطفلة في مكتبتها
+function renderLessons(id){
+  const c = CH(id), list = lessonsFor(c);
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  <div class="hero"><h1>🧩 دروس مقترحة لمستواي</h1><div class="muted">المستوى الحالي: ${esc(LEVEL_LABELS5[Math.min(levelRaw(c), 5) - 1])}</div></div>
+  ${list.length ? list.map(l => `<div class="card row between"><div><b>${esc(l.title)}</b><div class="muted" style="font-size:.85em">${esc(l.desc)}</div></div><button class="btn sm ok" data-act="lessonOpen" data-lid="${esc(l.id)}">▶️ فتح</button></div>`).join('') : '<p class="muted center">لا توجد دروس لهذا المستوى بعد</p>'}`;
+}
+// قسم الدروس في ملف البنت: الظهور للطفلة، ودروس الوالدين
+function lessonsAdminHtml(c){
+  const manage = canManageLessons();
+  const rows = BUILTIN_LESSONS.map(l => {
+    const shown = !((c.hiddenLessons || []).includes(l.id));
+    return `<div class="row between" style="border:1px solid #eee;border-radius:12px;padding:8px;margin-top:8px">
+      <div><b>${esc(l.title)}</b><div class="muted" style="font-size:.85em">${l.audience === 'parent' ? 'للوالدين فقط' : 'المستوى: ' + esc(LEVEL_LABELS5[l.minLevel - 1]) + ' فأعلى'}</div></div>
+      <div class="row">${l.audience === 'kid' ? `<label class="chk"><input type="checkbox" data-change="lessonToggle" data-cid="${esc(c.id)}" data-lid="${esc(l.id)}" ${shown ? 'checked' : ''} ${manage ? '' : 'disabled'}> ظاهر للطفلة</label>` : ''}
+      <button class="btn sm ghost" data-act="lessonOpen" data-lid="${esc(l.id)}">👁️ معاينة</button></div></div>`;
+  }).join('');
+  return `<div class="card"><h3>🧩 الدروس المدمجة</h3><p class="muted">تظهر الدروس للطفلة حسب مستواها. يمكن إخفاء أي درس عنها من هنا.</p>${rows}</div>`;
+}
 function renderLibrary(id){
   const c = CH(id);
-  const tiles = [['storyShelf','📚','قصص حسب مستواي'],['adhkar','📿','أذكاري وأدعيتي'],['days','📅','أيام الأسبوع'],['quran','🕌','القرآن الكريم'],['kidGrid','🌙','الأسماء الحسنى','name'],['kidGrid','👳','قصص الأنبياء','prophet'],['ytList','📺','قنوات يوتيوب'],['pdfList','📚','قصص مصورة PDF'],['stories','📚','القصص المصورة']];
+  const tiles = [['storyShelf','📚','قصص حسب مستواي'],['lessons','🧩','دروس مقترحة لمستواي'],['adhkar','📿','أذكاري وأدعيتي'],['days','📅','أيام الأسبوع'],['quran','🕌','القرآن الكريم'],['kidGrid','🌙','الأسماء الحسنى','name'],['kidGrid','👳','قصص الأنبياء','prophet'],['ytList','📺','قنوات يوتيوب'],['pdfList','📚','قصص مصورة PDF'],['stories','📚','القصص المصورة']];
   view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
   <div class="hero"><h1>📚 مكتبتي التعليمية</h1></div>
   <div class="tiles-grid">${tiles.map(([act, em, n, kind]) => `<button class="big-tile" data-act="${act}" data-id="${esc(id)}"${kind ? ` data-kind="${kind}"` : ''}><span class="em">${em}</span>${n}</button>`).join('')}</div>`;
