@@ -261,6 +261,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .kpi-row .kpi{flex-direction:column;align-items:flex-start;text-align:start}
 .set-head{display:flex;align-items:center;gap:10px}
 .set-menu .set-item{border-radius:14px}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:6px 0 14px}
+.set-card{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid var(--line,#eadfe6);border-radius:16px;background:#fff;text-align:right;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.set-card:hover,.set-card:focus-visible{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
+.set-ico{font-size:26px;width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:rgba(0,0,0,.04);flex:none}
+.set-txt{flex:1;display:flex;flex-direction:column;gap:2px}
+.set-txt b{font-size:15px}
+.set-txt small{font-size:12px;opacity:.7}
+.set-go{font-size:20px;opacity:.5}
+.set-hero{margin-bottom:8px}
+.set-hero h3{margin:0 0 4px}
+.set-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+.set-bar-t{flex:1;min-width:150px}
+.set-bar-t h3{margin:0}
+.set-bar-t small{display:block;font-size:12px}
 @media (max-width:420px){.kpis{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.kpi .ico{width:42px;height:42px;font-size:21px}}
 
 /* ===== الكؤوس وقائمة الفائزين ===== */
@@ -3326,7 +3340,7 @@ function guardDenied(act, d){
   return null;
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
-const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
+const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setSec',
   'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','cloudCreate','cloudSync','cloudStop']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
@@ -3536,9 +3550,23 @@ function recommendations(cid){
 }
 
 // أقسام الإعدادات: [المفتاح، الرمز، الاسم]
-// تجميع الأقسام: عام، ثم الحماية، ثم الخدمات
-const SETTINGS_GROUPS = [['🏠 عام', ['display','voice','quran']], ['🔐 الحماية والصلاحيات', ['security','agents']], ['🧰 الخدمات', ['health','backup','about']]];
-const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز المدير'],['agents','👥','الوكلاء وصلاحياتهم'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
+// صفحات الإعدادات: [المفتاح، الرمز، العنوان، الوصف، الدور]
+// الدور general = متاح لكل من يفتح الإعدادات، admin = لمدير النظام فقط
+const SETTINGS_PAGES = [
+  ['display','🎨','المظهر والأرقام','الوضع المظلم والألوان وشكل الأرقام','general'],
+  ['voice','🔊','الصوت والقراءة','سرعة النطق وتجربة الأصوات','general'],
+  ['quran','🕌','القرآن والفيديوهات','تكرار الآية والوضع الليلي وروابط الفيديو','general'],
+  ['health','🌿','التذكير والاستراحة','تذكير الاستراحة أثناء الدراسة','general'],
+  ['security','🔐','الأمان ورمز المدير','رمز الدخول واسم مدير النظام','admin'],
+  ['agents','👥','الوكلاء وصلاحياتهم','إنشاء الوكلاء وتحديد صلاحياتهم ومدتها','admin'],
+  ['backup','💾','النسخ الاحتياطي والمزامنة','رابط الدخول من الأجهزة والنسخ الاحتياطي','admin'],
+  ['about','ℹ️','عن البرنامج والنصائح','معلومات البرنامج ونصائح للاستخدام','general']
+];
+// مجموعات الصفحة الرئيسية للإعدادات حسب الدور
+const SETTINGS_GROUPS = [
+  ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']],
+  ['👑 إدارة مدير النظام', ['security','agents','backup']]
+];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل بنت مسندة إليه، مع الوصول إلى تقريرها الكامل
   // رسائل الطفلات والوكلاء الواردة إلى مدير النظام
@@ -3650,14 +3678,15 @@ const PARENT = {
   // صفحة الإعدادات: زر ☰ يفتح قائمة الأقسام، وكل قسم مجمّع حسب نوع البيانات
   // كل الأقسام موجودة في الصفحة (المخفي منها بالخاصية hidden) حتى تُحفظ كل القيم بزر واحد
   settings(){
-    const SECS = SETTINGS_SECS, cur = UI.setSec || 'display', now = SECS.find(x => x[0] === cur);
+    const cur = UI.setSec || ''; // '' = الصفحة الرئيسية للإعدادات
     const vAr = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('ar')).length, vEn = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('en')).length;
     const sec = (k, html) => `<div class="setsec" data-s="${k}" ${k === cur ? '' : 'hidden'}>${html}</div>`;
-    // القائمة مجمّعة في ثلاث مجموعات، وتُغلق بعد اختيار القسم
-    const groupOf = k => SETTINGS_GROUPS.find(g => g[1].includes(k));
-    const menuHtml = SETTINGS_GROUPS.map(([gname, keys]) => `<div class="muted set-group">${gname}</div>` + keys.map(k => { const x = SECS.find(y => y[0] === k); return x ? `<button class="set-item ${k === cur ? 'on' : ''}" data-act="setSec" data-s="${k}" data-n="${x[1]} ${x[2]}">${x[1]} ${x[2]}</button>` : ''; }).join('')).join('');
-    return `<div class="card set-head"><button class="btn ghost" data-act="setMenu" aria-label="القائمة">☰</button><div><h3 id="setTitle">⚙️ الإعدادات</h3><div class="muted" id="setCur">${now[1]} ${now[2]}</div></div></div>
-    <div class="card set-menu" id="setMenu" hidden>${menuHtml}</div>
+    // بطاقات الصفحة الرئيسية مجمّعة حسب الدور
+    const cards = SETTINGS_GROUPS.map(([gname, keys]) => `<h4 class="grp">${gname}</h4><div class="set-grid">${keys.map(k => { const pg = SETTINGS_PAGES.find(x => x[0] === k); return `<button class="set-card" data-act="setSec" data-s="${pg[0]}"><span class="set-ico">${pg[1]}</span><span class="set-txt"><b>${pg[2]}</b><small>${pg[3]}</small></span><span class="set-go">‹</span></button>`; }).join('')}</div>`).join('');
+    const pg = SETTINGS_PAGES.find(x => x[0] === cur);
+    // شريط الصفحة الفرعية: رجوع وعنوان وحفظ (تظهر فقط داخل صفحة)
+    return `<div id="setBar" class="card set-bar" ${cur ? '' : 'hidden'}><button class="btn ghost sm" data-act="setSec" data-s="">→ الإعدادات</button><div class="set-bar-t"><h3 id="setTitle">${pg ? pg[1] + ' ' + pg[2] : ''}</h3><small class="muted" id="setDesc">${pg ? pg[3] : ''}</small></div><button class="btn ok sm" data-act="saveSettings">💾 حفظ</button></div>
+    <div id="setHome" ${cur ? 'hidden' : ''}><div class="card set-hero"><h3>⚙️ الإعدادات</h3><p class="muted">اختاري القسم الذي تريدين تعديله، وكل قسم في صفحته الخاصة.</p></div>${cards}</div>
     ${sec('display', `<div class="card"><h3>🎨 المظهر والأرقام</h3>
       <label class="chk"><input type="checkbox" data-change="darkMode" ${S.settings.dark ? 'checked' : ''}> 🌙 الوضع المظلم (للمساء)</label>
       <div class="row" style="margin-top:8px"><button class="btn ghost" data-act="colorPanel">🎨 الألوان ▾</button><span class="muted">لون النظام ولون الحرف المستهدف</span></div>
@@ -3685,7 +3714,7 @@ const PARENT = {
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
     ${sec('about', PARENT.tips())}
-    <div class="card"><button class="btn ok" data-act="saveSettings">💾 حفظ الإعدادات</button><p class="muted">الحفظ يشمل كل الأقسام. الوضع المظلم والتذكير بالاستراحة يُحفظان فوراً عند التغيير.</p></div>`;
+    `;
   },
   notes(){
     const list = S.notes.filter(n => n.cid === UI.pchild).slice().reverse();
@@ -4528,15 +4557,15 @@ const ACT = {
   printMath: () => doPrint(mathHTML(UI.pchild)),
   printNotes: () => doPrint(notesPrintHTML(UI.pchild)),
   weeklyPdf: d => doPrint(weeklyReportHtml(d.id)),
-  // ☰ يفتح القائمة أو يغلقها دون إعادة رسم الصفحة (فلا تضيع القيم المكتوبة)
-  setMenu: () => { const m = $('#setMenu'); if (m) m.hidden = !m.hidden; },
+  // التنقل بين الصفحات: إظهار صفحة واحدة دون إعادة رسم (فلا تضيع القيم المكتوبة)
   setSec: d => {
-    UI.setSec = d.s;
-    const menu = $('#setMenu'), curLbl = $('#setCur'); if (menu) menu.hidden = true; if (curLbl) curLbl.textContent = d.n || '';
-    $$('.setsec').forEach(e => { e.hidden = e.dataset.s !== d.s; });
-    $$('.set-item').forEach(e => e.classList.toggle('on', e.dataset.s === d.s));
-    const t = $('#setTitle'); if (t) t.textContent = d.n;
-    const m = $('#setMenu'); if (m) m.hidden = true;
+    UI.setSec = d.s || '';
+    const pg = SETTINGS_PAGES.find(x => x[0] === UI.setSec);
+    const bar = $('#setBar'), home = $('#setHome');
+    if (bar) bar.hidden = !pg; if (home) home.hidden = !!pg;
+    if (pg) { const t = $('#setTitle'), ds = $('#setDesc'); if (t) t.textContent = pg[1] + ' ' + pg[2]; if (ds) ds.textContent = pg[3]; }
+    $$('.setsec').forEach(e => { e.hidden = e.dataset.s !== UI.setSec; });
+    window.scrollTo(0, 0);
   },
   monthlyPdf: d => doPrint(weeklyReportHtml(d.id, 30)),
   acceptLevel: d => {
@@ -4712,7 +4741,7 @@ const ACT = {
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
     const qp = $('#gqrep'), qn = $('#gqnight');
-    if (qp) S.settings.quranRepeat = +qp.value; if (qn) S.settings.quranNight = qn.checked; S.settings.ytScript = (($('#gytscript') || {value:''}).value || '').trim(); S.settings.driveFolder = (($('#gdfolder') || {value:''}).value || '').trim() || 'أكاديمية'; S.settings.pin = $('#gpin').value.trim(); S.settings.digits = $('#gdig').value; S.settings.rate = +$('#grate').value; save(); toast('تم حفظ الإعدادات');
+    if (qp) S.settings.quranRepeat = +qp.value; if (qn) S.settings.quranNight = qn.checked; S.settings.ytScript = (($('#gytscript') || {value:''}).value || '').trim(); S.settings.driveFolder = (($('#gdfolder') || {value:''}).value || '').trim() || 'أكاديمية'; S.settings.digits = $('#gdig').value; S.settings.rate = +$('#grate').value; save(); toast('تم حفظ الإعدادات');
     const gd = (($('#gdrive') || {value:''}).value || '').trim(); if (gd && gd !== DRIVE.clientId) driveConnect(gd); },
   testAr: () => speak([['مَرْحَبًا يَا رِيمَا وَيَمَامَة، بَ، بَا، بَاب', 'ar']]),
   testEn: () => speak([['Hello! A, apple. B, ball.', 'en']]),
