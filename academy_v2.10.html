@@ -224,6 +224,44 @@ label.f{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:8
 .set-item{display:block;width:100%;text-align:right;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);font:inherit;color:inherit;cursor:pointer}
 .set-item.on{background:var(--soft);font-weight:700}
 .grp{margin:12px 2px 4px;color:var(--muted);font-size:14px;font-weight:700}
+
+/* ===== التصميم الجديد: تدرجات وردية هادئة، وبطاقات KPI ===== */
+:root{--grad:linear-gradient(135deg,#ff9bbd 0%,#e75a8c 55%,#c73f70 100%);--shadow:0 10px 28px rgba(199,63,112,.13);--shadow-hover:0 14px 34px rgba(199,63,112,.20)}
+body{background:radial-gradient(900px 480px at 100% -8%,#ffe3ee 0,transparent 60%),radial-gradient(800px 460px at -8% 108%,#fff0d9 0,transparent 55%),var(--bg)}
+html.dark body{background:var(--bg)}
+h2{font-weight:900;color:var(--ink);letter-spacing:.2px}
+.card{border-radius:24px;box-shadow:var(--shadow);border:1px solid rgba(231,90,140,.10);padding:18px}
+.hero{border-radius:28px;background:var(--grad);color:#fff;border:0;box-shadow:0 14px 34px rgba(199,63,112,.30);padding:24px 14px}
+.hero h1{color:#fff;font-size:27px;text-shadow:0 2px 10px rgba(120,20,60,.18)}
+.hero .muted{color:rgba(255,255,255,.92)}
+.btn{border-radius:16px;background:var(--grad);box-shadow:0 8px 18px rgba(199,63,112,.25);transition:transform .12s,box-shadow .12s}
+.btn:hover{box-shadow:0 10px 22px rgba(199,63,112,.32)}
+.btn.ghost{background:#fff;color:var(--pri);box-shadow:0 2px 8px rgba(0,0,0,.06);border:1px solid var(--line)}
+.btn.ok{background:linear-gradient(135deg,#43c58a,#2fa36b);box-shadow:0 8px 18px rgba(47,163,107,.25)}
+.btn.danger{background:linear-gradient(135deg,#f0716b,#e2554f);box-shadow:0 8px 18px rgba(226,85,79,.25)}
+input,select,textarea{border-radius:14px;border:1.5px solid var(--line);padding:12px;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 4px rgba(231,90,140,.15)}
+.big-tile{border-radius:24px;background:#fff;box-shadow:0 8px 22px rgba(199,63,112,.10);border:1px solid rgba(231,90,140,.10);transition:transform .15s,box-shadow .15s}
+.big-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.big-tile .em{width:64px;height:64px;margin:0 auto 8px;border-radius:20px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:32px}
+.big-tile.main{background:var(--grad);color:#fff}
+.big-tile.main .em{background:rgba(255,255,255,.22)}
+.pill{background:#fff;border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.kids .kid{border-radius:26px}
+/* بطاقات KPI */
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}
+.kpi{background:#fff;border-radius:22px;padding:14px;box-shadow:var(--shadow);border:1px solid rgba(231,90,140,.10);display:flex;align-items:center;gap:12px;min-width:0}
+.kpi .ico{width:50px;height:50px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:25px;background:var(--soft);flex:0 0 auto}
+.kpi .v{font-size:26px;font-weight:900;color:var(--ink);line-height:1.1;font-family:Arial,sans-serif}
+.kpi .l{font-size:13px;color:var(--muted);font-weight:700;margin-top:3px}
+.kpi.c1 .ico{background:#ffe3ee}.kpi.c2 .ico{background:#fff1cc}.kpi.c3 .ico{background:#d9f6e6}.kpi.c4 .ico{background:#dff3ff}
+.kpi .bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:8px}
+.kpi .bar>div{height:100%;background:var(--grad);border-radius:6px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+.kpi-row .kpi{flex-direction:column;align-items:flex-start;text-align:start}
+.set-head{display:flex;align-items:center;gap:10px}
+.set-menu .set-item{border-radius:14px}
+@media (max-width:420px){.kpis{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.kpi .ico{width:42px;height:42px;font-size:21px}}
 </style>
 </head>
 <body>
@@ -1985,15 +2023,13 @@ function renderChild(id){
   <div class="row between"><button class="btn ghost sm" data-act="home">→ الرئيسية</button><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
   ${UI.pickProfile === id ? `<div class="card" style="text-align:center"><b>🖌️ اختاري لون ملفك:</b>
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
-  <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)}33,#fff)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
+  <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
   <div class="muted">اليوم ${plan.day}: ${esc(plan.title)}${due ? ` • ${due} عناصر للمراجعة` : ''}</div></div>
   <div class="tiles-grid">
     <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
   </div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
-  <div class="row center" style="justify-content:center;gap:8px;flex-wrap:wrap;margin:8px 0">
-    <span class="pill">⭐ ${p.stars} نجمة</span><span class="pill">⏱️ اليوم ${ts.today} دقيقة</span><span class="pill">🏅 ${mastered} مهارة متقنة</span>${due ? `<span class="pill">🔁 ${due} للمراجعة</span>` : ''}
-  </div>
+  ${kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')])}
   <div class="tiles-grid">
     <button class="big-tile" data-act="achievements"><span class="em">🏆</span>الإنجازات</button>
     <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
@@ -2944,6 +2980,16 @@ function renderParent(){
   <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${PARENT_GROUPS.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
   <div>${PARENT[cur]()}</div>`;
 }
+// بطاقة KPI: أيقونة + قيمة + عنوان، ونسبة اختيارية
+const kpi = (ico, label, value, cls = 'c1', pct = null) => `<div class="kpi ${cls}"><div class="ico">${ico}</div><div style="min-width:0;flex:1"><div class="v">${value}</div><div class="l">${label}</div>${pct !== null ? `<div class="bar"><div style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>` : ''}</div></div>`;
+const kpis = items => `<div class="kpi-row">${items.join('')}</div>`;
+// ملخص عام لولي الأمر: مجموع الأطفال
+const overviewKpis = () => {
+  const stars = S.children.reduce((n, c) => n + (P(c.id).stars || 0), 0);
+  const today = S.children.reduce((n, c) => n + (timeStats(c.id).today || 0), 0);
+  const mastered = S.children.reduce((n, c) => { const rs = allResults(c.id); return n + Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length; }, 0);
+  return kpis([kpi('⭐', 'نجوم الجميع', fmt(stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), kpi('👧', 'عدد الأطفال', fmt(S.children.length), 'c1')]);
+};
 const childPicker = () => `<div class="child-pick">${S.children.map(c => `<button class="${UI.pchild === c.id ? 'on' : ''}" data-act="pchild" data-id="${esc(c.id)}">${esc(c.emoji)} ${esc(c.name)}</button>`).join('')}</div>`;
 const chip = st => `<span class="stat-badge st-${st}">${STATUS[st]}</span>`;
 const kidChecks = (cls, sel) => S.children.map(c => `<label class="chk"><input type="checkbox" class="${cls}" value="${esc(c.id)}" ${sel && sel.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('');
@@ -3050,7 +3096,7 @@ function recommendations(cid){
 const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز ولي الأمر'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
 const PARENT = {
   reports(){
-    return `${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
+    return `${overviewKpis()}${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
   },
   words(){
     const e = UI.editWord ? S.words.find(w => w.id === UI.editWord) : null, f = UI.wfilter;
