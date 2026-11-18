@@ -683,9 +683,23 @@ async function cloudPush(){
   if (!S.cloud || !S.cloud.f) return false;
   const body = JSON.stringify(S);
   if (body.length > CLOUD_MAX) { toast('حجم البيانات أكبر من الحد المسموح للرابط'); return false; }
-  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body});
-  if (!r.ok) throw new Error('cloud ' + r.status);
+  let r;
+  try { r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body}); }
+  catch (e) { const err = new Error('network'); err.kind = 'network'; throw err; }
+  if (!r.ok) {
+    // نقرأ سبب الخطأ من الخادم (إن وُجد) ليظهر للمستخدمة بدل رسالة عامة
+    let why = ''; try { why = (await r.json()).error || ''; } catch (e) {}
+    const err = new Error(why || ('status ' + r.status)); err.status = r.status; throw err;
+  }
   return true;
+}
+// يحوّل خطأ الرفع إلى سبب مفهوم بالعربية
+function cloudErrText(e){
+  if (e && e.kind === 'network') return 'لا يوجد اتصال بالإنترنت';
+  if (e && e.status === 503) return 'التخزين السحابي غير مربوط بالمشروع في Vercel';
+  if (e && e.status === 404) return 'ملف الخادم api/family غير منشور، تحققي من النشر';
+  if (e && e.status) return (e.message || 'خطأ في الخادم') + ' (رمز ' + e.status + ')';
+  return e && e.message ? e.message : 'سبب غير معروف';
 }
 // إن كان في الرابط معرّف عائلة تُحمَّل البيانات منه؛ يُرجع البيانات أو false
 async function cloudPullFromLink(){
@@ -3475,6 +3489,8 @@ function recommendations(cid){
 }
 
 // أقسام الإعدادات: [المفتاح، الرمز، الاسم]
+// تجميع الأقسام: عام، ثم الحماية، ثم الخدمات
+const SETTINGS_GROUPS = [['🏠 عام', ['display','voice','quran']], ['🔐 الحماية والصلاحيات', ['security','agents']], ['🧰 الخدمات', ['health','backup','about']]];
 const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز المدير'],['agents','👥','الوكلاء وصلاحياتهم'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل بنت مسندة إليه، مع الوصول إلى تقريرها الكامل
@@ -3590,8 +3606,11 @@ const PARENT = {
     const SECS = SETTINGS_SECS, cur = UI.setSec || 'display', now = SECS.find(x => x[0] === cur);
     const vAr = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('ar')).length, vEn = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('en')).length;
     const sec = (k, html) => `<div class="setsec" data-s="${k}" ${k === cur ? '' : 'hidden'}>${html}</div>`;
-    return `<div class="card set-head"><button class="btn ghost" data-act="setMenu" aria-label="القائمة">☰</button><h3 id="setTitle">${now[1]} ${now[2]}</h3></div>
-    <div class="card set-menu" id="setMenu" hidden>${SECS.map(([k, em, n]) => `<button class="set-item ${k === cur ? 'on' : ''}" data-act="setSec" data-s="${k}" data-n="${em} ${n}">${em} ${n}</button>`).join('')}</div>
+    // القائمة مجمّعة في ثلاث مجموعات، وتُغلق بعد اختيار القسم
+    const groupOf = k => SETTINGS_GROUPS.find(g => g[1].includes(k));
+    const menuHtml = SETTINGS_GROUPS.map(([gname, keys]) => `<div class="muted set-group">${gname}</div>` + keys.map(k => { const x = SECS.find(y => y[0] === k); return x ? `<button class="set-item ${k === cur ? 'on' : ''}" data-act="setSec" data-s="${k}" data-n="${x[1]} ${x[2]}">${x[1]} ${x[2]}</button>` : ''; }).join('')).join('');
+    return `<div class="card set-head"><button class="btn ghost" data-act="setMenu" aria-label="القائمة">☰</button><div><h3 id="setTitle">⚙️ الإعدادات</h3><div class="muted" id="setCur">${now[1]} ${now[2]}</div></div></div>
+    <div class="card set-menu" id="setMenu" hidden>${menuHtml}</div>
     ${sec('display', `<div class="card"><h3>🎨 المظهر والأرقام</h3>
       <label class="chk"><input type="checkbox" data-change="darkMode" ${S.settings.dark ? 'checked' : ''}> 🌙 الوضع المظلم (للمساء)</label>
       <div class="row" style="margin-top:8px"><button class="btn ghost" data-act="colorPanel">🎨 الألوان ▾</button><span class="muted">لون النظام ولون الحرف المستهدف</span></div>
@@ -4466,6 +4485,7 @@ const ACT = {
   setMenu: () => { const m = $('#setMenu'); if (m) m.hidden = !m.hidden; },
   setSec: d => {
     UI.setSec = d.s;
+    const menu = $('#setMenu'), curLbl = $('#setCur'); if (menu) menu.hidden = true; if (curLbl) curLbl.textContent = d.n || '';
     $$('.setsec').forEach(e => { e.hidden = e.dataset.s !== d.s; });
     $$('.set-item').forEach(e => e.classList.toggle('on', e.dataset.s === d.s));
     const t = $('#setTitle'); if (t) t.textContent = d.n;
@@ -4699,10 +4719,10 @@ const ACT = {
     S.cloud = {f: Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')};
     save();
     try { await cloudPush(); toast('تم إنشاء الرابط ورفع البيانات ✅'); }
-    catch (e) { toast('تعذّر الرفع: تأكدي من ربط تخزين KV بالمشروع في Vercel'); }
+    catch (e) { toast('تعذّر الرفع: ' + cloudErrText(e)); }
     renderParent();
   },
-  cloudSync: async () => { try { await cloudPush(); toast('تم الرفع ✅'); } catch (e) { toast('تعذّر الرفع، تأكدي من الاتصال'); } },
+  cloudSync: async () => { try { await cloudPush(); toast('تم الرفع ✅'); } catch (e) { toast('تعذّر الرفع: ' + cloudErrText(e)); } },
   cloudCopy: () => {
     const el = $('#cloudLink'); if (!el) return;
     el.select();
