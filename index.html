@@ -1985,7 +1985,27 @@ const view = () => $('#view');
 const UI = {ptab:'reports', pchild:null, editWord:null, wfilter:'all', parentOk:false, story:null, comp:null, pickProfile:null};
 // إيقاف تلاوة القرآن عند مغادرة صفحتها
 function stopQuranAudio(){ if (QA) { try { QA.pause(); } catch (e) {} } if (UI.q) UI.q.playing = false; }
-function go(fn){ window.scrollTo(0, 0); stopQuranAudio(); fn(); }
+// ===== التنقل والرجوع: زر الرجوع في الجهاز والزر الداخلي يعودان للشاشة السابقة =====
+const NAV = [];   // الشاشات السابقة (دوال العرض)
+let CUR = null;   // الشاشة الحالية
+function go(fn){
+  window.scrollTo(0, 0); stopQuranAudio();
+  if (CUR) NAV.push(CUR);
+  CUR = fn;
+  history.pushState({ academy: true }, '');   // كل انتقال خطوة في سجل المتصفح
+  fn();
+}
+window.addEventListener('popstate', () => {
+  stopQuranAudio();
+  // بعد تسجيل الخروج لا تُعرض شاشات الطفلة السابقة
+  if (!UI.kid && !UI.parentOk) { NAV.length = 0; CUR = null; return renderHome(); }
+  const prev = NAV.length ? NAV.pop() : null;
+  if (prev) { CUR = prev; return prev(); }
+  CUR = null;
+  if (UI.kid) return renderChild(UI.kid);
+  if (UI.parentOk) return renderParent();
+  renderHome();
+});
 function renderHome(){
   stopQuranAudio();
   UI.parentOk = false; applyTheme();
@@ -2031,7 +2051,7 @@ function renderChild(id){
   const mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
   // الترتيب: التنقل ← الدرس اليومي ← العدادات ← الأقسام ← الإعدادات (لون الشاشة في الأسفل)
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="home">→ الرئيسية</button><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
+  <div class="row between"><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
   ${UI.pickProfile === id ? `<div class="card" style="text-align:center"><b>🖌️ اختاري لون ملفك:</b>
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
@@ -2113,7 +2133,7 @@ async function qSrc(url){
   } catch (e) { return url; }
 }
 function renderQuran(id){
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
   <div class="hero"><div style="font-size:46px">🕌</div><h1>القرآن الكريم</h1><div class="muted">اضغطي على السورة لتسمعيها وتقرئيها</div></div><div style="margin:10px 0"><div class="muted" style="margin-bottom:6px">🎙️ القارئ المختار</div><div class="row" style="flex-wrap:wrap;gap:6px">${QURAN_RECITERS.map(([key, label]) => `<button class="btn sm ${key === reciterOf(id) ? 'ok' : 'ghost'}" data-act="qReciterList" data-id="${esc(id)}" data-r="${esc(key)}">${esc(label)}</button>`).join('')}</div></div>
   <div class="tiles-grid" id="qGrid"><p class="muted center">جارِ التحميل…</p></div>`;
   quranList().then(list => {
@@ -2272,7 +2292,7 @@ async function ytFetchVideos(cid){
 }
 function renderYtList(id){
   const chans = (S.yt || []).filter(c => c.videos.some(v => v.show));
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
   <div class="hero"><div style="font-size:46px">📺</div><h1>قنوات يوتيوب</h1></div>
   ${chans.length ? `<div class="tiles-grid">${chans.map(c => `<button class="big-tile" data-act="ytChannel" data-id="${esc(id)}" data-c="${esc(c.id)}"><span class="em">📺</span>${esc(c.name)}</button>`).join('')}</div>` : '<div class="card"><p class="muted center">لا قنوات بعد، تُضاف من صفحة ولي الأمر</p></div>'}`;
 }
@@ -2303,7 +2323,7 @@ function renderYtTab(){
 function kItems(kind, k){ return (S.kcontent || []).filter(x => x.kind === kind && String(x.key) === String(k) && x.approved); }
 function renderKidsGrid(id, kind){
   const list = kind === 'name' ? ASMA_99 : PROPHETS_25;
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
   <div class="hero"><div style="font-size:46px">${kind === 'name' ? '🌙' : '👳'}</div><h1>${kind === 'name' ? 'الأسماء الحسنى' : 'قصص الأنبياء'}</h1></div>
   <div class="tiles-grid">${list.map(([ar, en], i) => `<button class="big-tile" data-act="kidItem" data-id="${esc(id)}" data-kind="${kind}" data-k="${i}"><span class="em" style="font-size:26px">${esc(ar)}</span></button>`).join('')}</div>`;
 }
@@ -2368,7 +2388,7 @@ function daysVideoList(){
 function renderDays(id){
   const ids = daysVideoList(), first = ids[0];
   view().innerHTML = `
-    <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+    <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
     <div class="hero"><div style="font-size:46px">📅</div><h1>أيام الأسبوع</h1><div class="muted">اضغطي على أي يوم لتسمعيه بالعربي والإنجليزي</div></div>
     ${first ? `<div class="card" style="padding:8px"><iframe id="dayFrame" width="100%" height="220" src="https://www.youtube.com/embed/${first}?rel=0" frameborder="0" allowfullscreen style="border-radius:14px;border:0"></iframe>
       <div class="row center" style="margin-top:6px"><button class="btn sm" id="dayShare" data-act="shareVid" data-v="${first}" data-t="أيام الأسبوع">📤 مشاركة / واتساب</button></div></div>` : '<p class="muted center">🎬 لم تُضف فيديوهات بعد، تُضاف من صفحة ولي الأمر</p>'}
@@ -2381,7 +2401,7 @@ function renderTgStories(id){
   UI.tgIdx = Math.max(0, Math.min(UI.tgIdx || 0, items.length - 1));
   const item = items[UI.tgIdx];
   view().innerHTML = `
-    <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">📱 ${esc(c.name)}</span></div>
+    <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">📱 ${esc(c.name)}</span></div>
     <div class="hero"><div style="font-size:46px">📱</div><h1>قصص تلجرام</h1><div class="muted">القناة: ${esc(c.tgChannel || '—')}</div></div>
     ${item ? `
       <div class="row center"><button class="btn sm ghost" data-act="tgPrev" data-id="${esc(id)}">◀️</button><span class="pill">${UI.tgIdx + 1} / ${items.length}</span><button class="btn sm ghost" data-act="tgNext" data-id="${esc(id)}">▶️</button>${item.text ? `<button class="btn sm warn" data-act="tgSpeak" data-id="${esc(id)}">🔊</button>` : ''}</div>
@@ -2420,7 +2440,7 @@ async function pdfBytes(st){
 // قائمة قصص البنت
 function renderPdfList(id){
   const c = CH(id), items = c.pdfStories || [];
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
     <div class="hero"><div style="font-size:46px">📚</div><h1>قصص مصورة PDF</h1></div>
     ${items.length ? `<div class="tiles-grid">${items.map(s => `<button class="big-tile" data-act="pdfOpen" data-id="${esc(id)}" data-sid="${esc(s.id)}"><span class="em">📖</span>${esc(s.title)}</button>`).join('')}</div>` : '<div class="card"><p class="muted center">لا قصص بعد، تُضاف من صفحة ولي الأمر</p></div>'}
     ${(c.tgStories || []).length ? `<div class="center" style="margin-top:12px"><button class="btn ghost sm" data-act="tgOpen" data-id="${esc(id)}">📱 القصص القديمة (${c.tgStories.length})</button></div>` : ''}`;
@@ -2458,7 +2478,7 @@ function renderAdhkar(id){
   const list = (S.adhkar || []).filter(a => a.visible && a.approved);
   const cats = [...new Set(list.map(a => a.cat))];
   view().innerHTML = `
-    <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+    <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
     <div class="hero"><div style="font-size:46px">📿</div><h1>أذكاري وأدعيتي</h1></div>
     ${!cats.length ? '<p class="muted center">لا توجد أذكار معتمدة بعد — تُعتمد من صفحة ولي الأمر</p>' : cats.map(cat => `
       <div class="card"><h3>${esc(cat)}</h3>
@@ -2492,7 +2512,7 @@ function renderSubject(id, sub){
   const c = CH(id), rs = allResults(id), S0 = SUBJECTS[sub];
   const skills = Object.entries(SKILLS).filter(([, v]) => v.sub === sub);
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
   <h2 style="text-align:center">${S0.em} ${S0.n}</h2>
   ${sub === 'ar' || sub === 'wr' ? focusPicker(c, 'ar') : sub === 'en' ? focusPicker(c, 'en') : sub !== 'm' ? `<div class="card muted center">تختاري نشاطاً من الأنشطة أدناه، ويُعاد ضبط الإعدادات من لوحة ولي الأمر.</div>` : `<div class="card muted center">الجمع حتى ${fmt(c.addMax)} • الطرح حتى ${fmt(c.subMax)} • الأعداد حتى ${fmt(c.mathMax)} (تتغير من صفحة ولي الأمر)</div>`}
   <div class="tiles-grid">
@@ -2711,7 +2731,7 @@ function renderSummary(r){
 function renderStars(id){
   const c = CH(id), p = P(id), rs = allResults(id), mastered = Object.keys(SKILLS).filter(s => skillStatus(rs, s) === 'mastered');
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button></div>
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div>
   <div class="hero"><div>${avatar(c, 90)}</div><h1>⭐ ${p.stars} نجمة</h1><div class="muted">🏆 فوز في المسابقات: ${compWins(id)}</div></div>
   <div class="card"><h3>🏅 شاراتي</h3><div class="chips">${BADGES.map(([n, em, nm]) => `<span class="chip" style="background:${p.stars >= n ? '#fff1cc' : '#f2f2f2'};opacity:${p.stars >= n ? 1 : .45}">${em} ${nm} <small>(${n})</small></span>`).join('')}</div></div>
   ${shopHtml(id)}<div class="card"><h3>✅ مهاراتي المتقنة</h3>${mastered.length ? `<div class="chips">${mastered.map(s => `<span class="chip st-mastered">${SKILLS[s].em} ${SKILLS[s].n}</span>`).join('')}</div>` : '<p class="muted">استمري في التدريب وستظهر هنا مهاراتك المتقنة 🌱</p>'}</div>
@@ -2724,7 +2744,7 @@ function renderStory(id, fresh){
   if (fresh || !UI.story || UI.story.cid !== id) { rnd = Math.random; UI.story = {cid:id, st:makeStory([c], Math.random() < 0.6 && !c.hideName ? c.name : null)}; }
   const st = UI.story.st;
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
   <div class="hero"><div style="font-size:46px">📚</div><h1>${esc(st.title)}</h1></div>
   ${st.lines.map((l, i) => `<div class="story-line" id="sl${i}"><div class="e">${l.e}</div><div class="t">${esc(l.t)}</div></div>`).join('')}
   <div class="row center" style="margin-top:12px"><button class="btn" data-act="readStory">🎧 اسمعي القصة</button><button class="btn ok" data-act="storyQs" data-id="${esc(id)}">❓ أسئلة القصة</button><button class="btn ghost" data-act="newStory" data-id="${esc(id)}">🔄 قصة جديدة</button></div>
@@ -2758,7 +2778,7 @@ let G = null;
 function renderGames(id){
   const c = CH(id), g = P(id).games;
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
   <h2 class="center" style="text-align:center">🎮 الألعاب التعليمية</h2>
   <div class="tiles-grid">
     <button class="big-tile" data-act="gHunt" data-id="${esc(id)}" data-lang="ar"><span class="em">🔍</span>صيد الحروف<br><small class="muted">أفضل: ${g.huntAr || 0}</small></button>
@@ -2970,7 +2990,7 @@ async function openParent(){
       }
     }
   }
-  UI.parentOk = true; UI.kid = null; armParentTimer();
+  UI.parentOk = true; UI.kid = null; NAV.length = 0; CUR = null; armParentTimer();
   if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
   go(renderParent);
 }
@@ -3576,7 +3596,13 @@ async function copyText(t){
 
 // ===== الأحداث =====
 const ACT = {
-  home: () => go(renderHome),
+  home: () => (UI.kid ? ACT.back() : go(renderHome)),
+  // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفلة الرئيسية
+  back: () => {
+    if (NAV.length) return history.back();
+    if (CUR_CID && CH(CUR_CID)) return go(() => renderChild(CUR_CID));
+    UI.kid ? go(() => renderChild(UI.kid)) : go(renderHome);
+  },
   kidLogin: () => {
     const msg = $('#lmsg'), name = normName(($('#lname') || {}).value), code = (($('#lcode') || {}).value || '').trim();
     if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
@@ -3591,7 +3617,7 @@ const ACT = {
     }
     UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
   },
-  kidLogout: () => { UI.kid = null; go(renderHome); },
+  kidLogout: () => { UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   achievements: () => go(renderAchievements),
   openChild: d => go(() => renderChild(d.id)),
   adhkar: d => go(() => renderAdhkar(d.id)),
@@ -4659,7 +4685,7 @@ function renderMeasure(id){
   const weak = [...scored].sort((a, b) => a.st.ip - b.st.ip).slice(0, 3);
   const nx = nextSkills(c).slice(0, 3);
   const table = Object.entries(SKILL_PATH).map(([sub, path]) => `<h4>${SUBJECTS[sub].em} ${SUBJECTS[sub].n}</h4>${skillCompareRows(id, path)}`).join('');
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
   <div class="hero"><h1>📈 مركز قياس التطور</h1><div class="muted">المستوى الحالي: ${LEVEL_NAMES[kidLevel(c)]}${pl ? ` • آخر تحديد: ${new Date(pl.at).toLocaleDateString('ar')}` : ''}${c.age ? ` • العمر: ${c.age}` : ''}</div></div>
   <div class="row center"><button class="btn" data-act="placement" data-id="${esc(id)}">🎯 اختبار تحديد المستوى</button><button class="btn ghost" data-act="weeklyPdf" data-id="${esc(id)}">🖨️ تقرير أسبوعي (PDF)</button><button class="btn ghost" data-act="monthlyPdf" data-id="${esc(id)}">🗓️ تقرير شهري (PDF)</button><button class="btn ok" data-act="customTest" data-id="${esc(id)}">🧪 اختبار مخصص من الضعيف</button></div>
   ${levelSuggestHtml(c)}<div class="card"><h3>💪 نقاط القوة</h3><p>${strong.length ? strong.map(o => skillChip(o.s)).join(' ') : '<span class="muted">تحتاج المهارة إلى ٣ إجابات على الأقل</span>'}</p>
@@ -4673,7 +4699,7 @@ function renderMeasure(id){
 }
 function renderSmart(id){
   const c = CH(id), plan = buildDailyQueue(c), nx = nextSkills(c).slice(0, 3), pl = P(id).placement;
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
   <div class="hero"><h1>🧠 المعلمة الذكية</h1><div class="muted">تختار لكِ ما تحتاجين إليه الآن</div></div>
   <div class="card"><h3>📘 درس اليوم</h3><p>${esc(plan.title)}</p><p class="muted">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
     ${dueSkills(id).length ? '<p>مراجعة مستحقة: ' + dueSkills(id).slice(0, 3).map(o => skillChip(o.s)).join(' ') + '</p>' : ''}
@@ -4686,13 +4712,13 @@ function renderSmart(id){
 function renderLibrary(id){
   const c = CH(id);
   const tiles = [['storyShelf','📚','قصص حسب مستواي'],['adhkar','📿','أذكاري وأدعيتي'],['days','📅','أيام الأسبوع'],['quran','🕌','القرآن الكريم'],['kidGrid','🌙','الأسماء الحسنى','name'],['kidGrid','👳','قصص الأنبياء','prophet'],['ytList','📺','قنوات يوتيوب'],['pdfList','📚','قصص مصورة PDF'],['stories','📚','القصص المصورة']];
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
   <div class="hero"><h1>📚 مكتبتي التعليمية</h1></div>
   <div class="tiles-grid">${tiles.map(([act, em, n, kind]) => `<button class="big-tile" data-act="${act}" data-id="${esc(id)}"${kind ? ` data-kind="${kind}"` : ''}><span class="em">${em}</span>${n}</button>`).join('')}</div>`;
 }
 function renderArLab(id){
   const c = CH(id), recs = (P(id).recs || []).slice().sort((a, b) => b.at - a.at);
-  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
   <div class="hero"><h1>🔤 مختبر القراءة العربية</h1><div class="muted">تمارين القراءة، وتسجيل قراءتكِ لمقارنة تقدمكِ</div></div>
   <div class="tiles-grid">
     <button class="big-tile main" data-act="subject" data-id="${esc(id)}" data-sub="ar"><span class="em">🔤</span>تمارين القراءة</button>
