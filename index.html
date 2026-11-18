@@ -302,10 +302,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .cup-row .bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin-top:6px}
 .cup-row .bar>div{height:100%;background:var(--grad);border-radius:8px}
 #brand{position:sticky;top:0;z-index:60;text-align:center;font-weight:800;font-size:15px;padding:8px 10px;background:var(--grad);color:#fff;letter-spacing:.3px}
+.env-btn{position:absolute;inset-inline-end:10px;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:999px;border:none;background:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center}
+.env-btn[hidden]{display:none}
+.env-btn .env-pill{position:absolute;top:-4px;inset-inline-end:-4px;background:#e35d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:1px 6px;line-height:1.4}
 </style>
 </head>
 <body>
-<div id="brand">🌸 أكاديمية أبو نصره 🌸</div>
+<div id="brand"><span>🌸 أكاديمية أبو نصره 🌸</span><button id="envBtn" class="env-btn" hidden aria-label="الرسائل"></button></div>
 <div id="app"><main id="view"></main></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast"></div>
@@ -2200,7 +2203,22 @@ function go(fn){
   if (CUR) NAV.push(CUR);
   CUR = fn;
   history.pushState({ academy: true }, '');   // كل انتقال خطوة في سجل المتصفح
-  fn();
+  fn(); updateEnvelope();
+}
+// زر الظرف في أعلى الشاشة: للطفلة يفتح مراسلتها، ولولي الأمر يفتح صفحة الرسائل
+function updateEnvelope(){
+  const el = $('#envBtn'); if (!el) return;
+  const kid = UI.kid && CH(UI.kid) && !CH(UI.kid).chatOff ? UI.kid : null;
+  if (!kid && !UI.parentOk) { el.hidden = true; return; }
+  el.hidden = false;
+  if (kid) {
+    const n = chatUnread(kid);
+    el.dataset.act = 'chat'; el.dataset.id = kid; el.title = 'المراسلة';
+    el.innerHTML = '✉️' + (n ? `<span class="env-pill">${n}</span>` : '');
+  } else {
+    el.dataset.act = 'envParent'; el.dataset.id = ''; el.title = 'الرسائل';
+    el.innerHTML = '✉️';
+  }
 }
 window.addEventListener('popstate', () => {
   stopQuranAudio();
@@ -4628,6 +4646,7 @@ const ACT = {
   // لوحة التحكم: فتح تقرير طفل محددة
   dashReport: d => { UI.pchild = d.id; UI.ptab = 'reports'; renderParent(); },
   // دخول ولي الأمر إلى صفحة الطفل مباشرة (بدون رمز الطفل ودون تسجيل دخول)
+  envParent: () => { if (!UI.parentOk) return toast('هذه الصفحة لولي الأمر فقط'); UI.ptab = 'inbox'; UI.pMenuOpen = false; go(renderParent); },
   kidAs: d => {
     const c = CH(d.id);
     if (!c || !visibleKids().some(k => k.id === c.id)) return toast('هذا الطفل غير متاح لك');
@@ -5881,11 +5900,11 @@ Object.assign(ACT, {
     speechSynthesis.speak(u);
   }
 });
-document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !$('#app').contains(b)) return; const fn = ACT[b.dataset.act]; if (!fn) return;
+document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !($('#app').contains(b) || $('#brand').contains(b))) return; const fn = ACT[b.dataset.act]; if (!fn) return;
   const denied = guardDenied(b.dataset.act, b.dataset);
   if (denied === 'expired') { toast('انتهت وكالتك، أعيدي الدخول'); UI.parentOk = false; return go(renderHome); }
   if (denied) return toast(denied);
-  fn(b.dataset, b); });
+  fn(b.dataset, b); updateEnvelope(); });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.change && CHANGE[t.dataset.change]) CHANGE[t.dataset.change](t); });
 
 view().innerHTML = '<p class="center muted">جارٍ تحميل البيانات…</p>';
