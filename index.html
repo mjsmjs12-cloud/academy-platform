@@ -515,7 +515,7 @@ async function bootApp(){
   S = r.state;
   if (r.legacy) persistNow(JSON.stringify(S)); // ترحيل مرة واحدة إلى IndexedDB دون تغيير توقيت المزامنة
   const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
-  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setLocalAt(S._at || Date.now()); }
+  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setCloudV(S._v || 0); }
   READY = true;
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
   applyTheme(); renderHome(); driveBoot(); startCloudPolling();
@@ -704,8 +704,15 @@ async function driveDownload(id){ return (await gfetch(`https://www.googleapis.c
 const CLOUD_API = '/api/family', CLOUD_MAX = 900 * 1024;
 let CLOUD_TIMER = null, CLOUD_POLL = null, CLOUD_LISTENING = false;
 const cloudLink = f => location.origin + location.pathname + '?f=' + f;
+// المزامنة بالإصدارات (_v) لا بتوقيت الجهاز: ساعات الأجهزة المختلفة لا تؤثر فيها
+// CLOUD_DIRTY = في الجهاز تعديل لم يُرفع بعد
+let CLOUD_DIRTY = false;
+const cloudVKey = () => 'academyCloudV:' + ((S.cloud && S.cloud.f) || '');
+const cloudV = () => +(localStorage.getItem(cloudVKey()) || 0);
+const setCloudV = (v, f) => { try { localStorage.setItem('academyCloudV:' + (f || (S.cloud && S.cloud.f) || ''), String(v || 0)); } catch (e) {} };
 function cloudSoon(){
   if (!S.cloud || !S.cloud.f) return;
+  CLOUD_DIRTY = true;
   clearTimeout(CLOUD_TIMER);
   CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => cloudRetry()), 1500);
 }
@@ -725,20 +732,20 @@ async function cloudGet(){
 function cloudApply(d){
   try {
     keepPrev(JSON.stringify(S));
-    const link = S.cloud;
+    const link = S.cloud, f = link.f;
     S = migrate(d); S.cloud = link;
-    persistNow(JSON.stringify(S)); setLocalAt(d._at || Date.now());
+    persistNow(JSON.stringify(S)); setCloudV(d._v || 0, f);
     applyTheme();
     if (UI.parentOk) renderParent();
     else if (UI.kid && !document.querySelector('input:focus, textarea:focus')) renderChild(UI.kid);
     toast('☁️ وصلت تحديثات من الجهاز الآخر');
   } catch (e) { console.warn('cloud: bad remote data', e); }
 }
-// سحب دوري: يطبّق الخادم إن كان أحدث من آخر تعديل محلي
+// سحب دوري: يطبّق الخادم إن كان له إصدار أحدث، ولا يسحب والتعديل المحلي لم يُرفع بعد
 async function cloudPull(){
-  if (!S.cloud || !S.cloud.f) return;
+  if (!S.cloud || !S.cloud.f || CLOUD_DIRTY) return;
   const d = await cloudGet();
-  if (d && (d._at || 0) > localAt()) cloudApply(d);
+  if (d && (d._v || 0) > cloudV()) cloudApply(d);
 }
 // يبدأ السحب الدوري كل 30 ثانية، وعند عودة البرنامج للظهور
 function startCloudPolling(){
@@ -750,24 +757,28 @@ function startCloudPolling(){
     document.addEventListener('visibilitychange', () => { if (!document.hidden && S.cloud && S.cloud.f) cloudPull().catch(() => {}); });
   }
 }
-// الرفع: إن كان الخادم أحدث من آخر تعديل محلي نسحب بدل أن نكتب فوقه (الأحدث يفوز)
+// الرفع: إن كان للخادم إصدار أحدث ولا تعديل محلي معلّق نسحبه بدل الكتابة فوقه
 async function cloudPush(){
   if (!S.cloud || !S.cloud.f) return false;
   const remote = await cloudGet();
-  if (remote && (remote._at || 0) > localAt()) { cloudApply(remote); return true; }
-  const at = Date.now();
-  S._at = at;
+  const rv = remote ? (remote._v || 0) : 0;
+  if (remote && rv > cloudV() && !CLOUD_DIRTY) { cloudApply(remote); return true; }
+  const v = Math.max(rv, cloudV()) + 1;
+  S._v = v;
   const body = JSON.stringify(S);
   if (body.length > CLOUD_MAX) { toast('حجم البيانات أكبر من الحد المسموح للرابط'); return false; }
+  CLOUD_DIRTY = false; // أي تعديل يحدث أثناء الرفع يعيد العلامة
   let r;
-  try { r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body}); }
-  catch (e) { const err = new Error('network'); err.kind = 'network'; throw err; }
-  if (!r.ok) {
-    // نقرأ سبب الخطأ من الخادم (إن وُجد) ليظهر للمستخدمة بدل رسالة عامة
-    let why = ''; try { why = (await r.json()).error || ''; } catch (e) {}
-    const err = new Error(why || ('status ' + r.status)); err.status = r.status; throw err;
-  }
-  setLocalAt(at);
+  try {
+    try { r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(S.cloud.f), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body}); }
+    catch (e) { const err = new Error('network'); err.kind = 'network'; throw err; }
+    if (!r.ok) {
+      // نقرأ سبب الخطأ من الخادم (إن وُجد) ليظهر للمستخدمة بدل رسالة عامة
+      let why = ''; try { why = (await r.json()).error || ''; } catch (e) {}
+      const err = new Error(why || ('status ' + r.status)); err.status = r.status; throw err;
+    }
+  } catch (e) { CLOUD_DIRTY = true; throw e; }
+  setCloudV(v);
   return true;
 }
 // يحوّل خطأ الرفع إلى سبب مفهوم بالعربية
