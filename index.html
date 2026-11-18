@@ -1814,7 +1814,7 @@ async function useRecovery(){
   if (!r.v) return;
   const norm = (r.input || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if ((await sha256hex(norm)) !== S.settings.recHash) return toast('رمز الاسترداد غير صحيح');
-  S.settings.pin = ''; delete S.settings.recHash; delete S.settings.guardPin; save();
+  S.settings.pin = ''; delete S.settings.recHash; S.settings.agents = []; save();
   toast('أُلغي رمز ولي الأمر القديم، أنشئي رمزاً جديداً');
   await openParent();
 }
@@ -2960,25 +2960,75 @@ function pinMatches(input){
   if (input === st) { S.settings.pin = hashPin(input); save(); return true; }
   return false;
 }
-// دور الدخول: مدير النظام (الرمز الرئيسي) أو ولي الأمر (رمز المتابعة)
-function pinRole(input){
-  if (pinMatches(input)) return 'admin';
-  const g = S.settings.guardPin || '';
-  return g && hashPin(input) === g ? 'guardian' : null;
+// ===== الوكلاء (أولياء الأمور): كل وكيل برمز خاص وصلاحيات ومدة يحددها مدير النظام =====
+const AGENT_PERMS = [
+  ['kids','👧 الأطفال (إضافة وتعديل الملفات)'], ['reports','📊 التقارير والوقت'], ['notes','📝 الملاحظات'],
+  ['content','📚 المحتوى (الكلمات والأذكار والقصص والفيديو)'], ['print','🖨️ الطباعة'], ['delete','🗑️ الحذف (يُمنح بحذر)']
+];
+const AGENT_TEMPLATES = {
+  follow:  {label:'متابِع', perms:['reports']},
+  teacher: {label:'معلّم', perms:['reports','content','print']},
+  full:    {label:'ولي أمر كامل', perms:['kids','reports','notes','content','print']}
+};
+// الصفحة -> الصلاحية المطلوبة لفتحها
+const TAB_PERM = {kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print'};
+// أفعال الحذف: تُمنح بصلاحية "حذف" فقط
+const DELETE_ACTS = new Set(['delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
+// قائمة الوكلاء، مع ترحيل رمز ولي الأمر القديم إلى وكيل واحد
+function agents(){
+  if (!S.settings.agents) S.settings.agents = [];
+  if (S.settings.guardPin) {
+    S.settings.agents.push({id:'ag' + Date.now().toString(36), name:'ولي الأمر', pin:S.settings.guardPin, perms:AGENT_TEMPLATES.full.perms.slice(), until:''});
+    delete S.settings.guardPin; save();
+  }
+  return S.settings.agents;
 }
-// صلاحيات مدير النظام فقط: الإعدادات والرمز والنسخ الاحتياطي والحذف
-const ADMIN_TABS = new Set(['settings']);
+const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const isActive = a => !a.until || a.until >= todayLocal();
+// دور الدخول: مدير النظام، أو وكيل نشط، أو وكيل منتهٍ
+function pinRole(input){
+  if (pinMatches(input)) return {role:'admin'};
+  const h = hashPin(input), a = agents().find(x => x.pin === h);
+  if (!a) return null;
+  return isActive(a) ? {role:'guardian', agent:a} : {role:'expired', agent:a};
+}
+const currentAgent = () => agents().find(x => x.id === UI.agentId) || null;
+const agentAllows = (perm) => { const a = currentAgent(); return !!a && isActive(a) && a.perms.includes(perm); };
+// سبب منع الإجراء للوكيل، أو null إن كان مسموحاً
+function guardDenied(act, d){
+  if (!(UI.parentOk && UI.parentRole === 'guardian')) return null;
+  const a = currentAgent();
+  if (!a || !isActive(a)) return 'expired';
+  if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
+  if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
+  if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
+  return null;
+}
+// الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll',
-  'delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
+// واجهة إدارة الوكلاء (مدير النظام فقط)
+function agentsHtml(){
+  const rows = agents().map(a => `<div class="card" style="margin-top:8px">
+    <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${AGENT_PERMS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-change="agentPerm" data-id="${esc(a.id)}" data-p="${k}" ${a.perms.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+    <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).map(([k, t]) => `<button class="btn sm ghost" data-act="agentTpl" data-id="${esc(a.id)}" data-t="${k}">${t.label}</button>`).join('')}
+      <label class="f" style="margin:0">تنتهي في <input type="date" data-change="agentUntil" data-id="${esc(a.id)}" value="${esc(a.until || '')}"></label>
+      <button class="btn sm ghost" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء الوكالة</button></div></div>`).join('');
+  return `<div class="card"><h3>👥 الوكلاء (أولياء الأمور)</h3>
+    <p class="muted">كل وكيل له رمز خاص وصلاحيات تحددينها. لا تشمل الإعدادات والرمز والنسخ الاحتياطي.</p>
+    ${rows || '<p class="muted">لا يوجد وكلاء بعد</p>'}
+    <div class="card" style="margin-top:10px"><h4>➕ وكيل جديد</h4>
+      <label class="f">الاسم</label><input id="agName" placeholder="مثال: الجدة، المعلّمة">
+      <label class="f">الرمز الخاص (4 أرقام على الأقل)</label><input id="agPin" type="password" inputmode="numeric">
+      <label class="f">تنتهي في (اتركيه فارغاً للدائمة)</label><input id="agUntil" type="date">
+      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).map(([k, t]) => `<button class="btn sm" data-act="agentAdd" data-t="${k}">➕ ${t.label}</button>`).join('')}</div></div></div>`;
+}
 function savePinFromForm(){
   const el = $('#gpin'); if (!el) return;
   const v = (el.value || '').trim(), clr = !!($('#gpinclear') && $('#gpinclear').checked);
-  if (clr) { S.settings.pin = ''; delete S.settings.guardPin; } else if (v) S.settings.pin = hashPin(v);
-  // رمز ولي الأمر: يُحفظ فقط بعد وجود رمز المدير، ولا يطابق رمز المدير
-  const gv = (($('#gguard') || {}).value || '').trim();
-  if (gv && S.settings.pin && hashPin(gv) !== S.settings.pin) S.settings.guardPin = hashPin(gv);
+  if (clr) { S.settings.pin = ''; S.settings.agents = []; } else if (v) S.settings.pin = hashPin(v);
 }
 let parentTimer = null;
 function armParentTimer(){
@@ -2989,7 +3039,7 @@ document.addEventListener('click', () => { if (UI.parentOk) armParentTimer(); })
 async function openParent(){
   // الدخول يتطلب رمزاً: إن لم يكن هناك رمز بعد يُطلب إنشاؤه أولاً
   if (!UI.parentOk) {
-    UI.parentRole = 'admin';
+    UI.parentRole = 'admin'; UI.agentId = null;
     if (!S.settings.pin) {
       const c = await modal('🔐 إنشاء رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="أدخلي رمزاً" style="text-align:center;font-size:22px">', [{label:'حفظ', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
       if (!c.v || !c.input) { toast('يجب إنشاء رمز لدخول لوحة ولي الأمر'); return; }
@@ -2998,7 +3048,9 @@ async function openParent(){
     } else {
       const r = await modal('🔒 رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="الرمز" style="text-align:center;font-size:22px">', [{label:'دخول', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
       if (!r.v) return;
-      UI.parentRole = pinRole(r.input);
+      const got = pinRole(r.input);
+      if (got && got.role === 'expired') { toast('انتهت وكالة هذا الوكيل، اطلبي من مدير النظام تجديدها'); return; }
+      UI.parentRole = got ? got.role : null; UI.agentId = got && got.agent ? got.agent.id : null;
       if (!UI.parentRole) {
         const f = await modal('الرمز غير صحيح', 'هل نسيتِ الرمز؟ يمكنك استخدام رمز الاسترداد.', [{label:'استخدام رمز الاسترداد', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
         if (f.v) await useRecovery();
@@ -3021,8 +3073,11 @@ const PARENT_LABELS = {kids:'👧 أسماء البنات وملفاتهن', rep
 function renderParent(){
   applyTheme();
   const guard = UI.parentRole === 'guardian';
-  const groups = guard ? PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(k => !ADMIN_TABS.has(k))]).filter(([, keys]) => keys.length) : PARENT_GROUPS;
-  const cur = PARENT_LABELS[UI.ptab] && !(guard && ADMIN_TABS.has(UI.ptab)) ? UI.ptab : 'reports';
+  const allowed = t => !guard || (!!TAB_PERM[t] && agentAllows(TAB_PERM[t]));
+  const groups = PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(allowed)]).filter(([, keys]) => keys.length);
+  const firstTab = PARENT_GROUPS.flatMap(g => g[1]).find(allowed);
+  if (guard && !firstTab) { view().innerHTML = `<div class="card center"><h3>لا توجد صفحات مسموحة لك</h3><p class="muted">اطلبي من مدير النظام منح صلاحيات لهذا الوكيل.</p><button class="btn ghost" data-act="home">🏠 الرئيسية</button></div>`; return; }
+  const cur = PARENT_LABELS[UI.ptab] && allowed(UI.ptab) ? UI.ptab : (firstTab || 'reports');
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
   <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
@@ -3173,7 +3228,7 @@ function recommendations(cid){
 }
 
 // أقسام الإعدادات: [المفتاح، الرمز، الاسم]
-const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز ولي الأمر'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
+const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز المدير'],['agents','👥','الوكلاء وصلاحياتهم'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
 const PARENT = {
   reports(){
     return `${overviewKpis()}${compareHTML()}${childPicker()}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
@@ -3267,10 +3322,11 @@ const PARENT = {
       <label class="f">🎬 روابط فيديوهات أيام الأسبوع (عدد غير محدود، افصلي بينها بمسافة أو سطر)</label><textarea id="gdaysvid" rows="3">${esc(daysVideoList().map(v => 'https://youtu.be/' + v).join('\n'))}</textarea>
       <label class="f">📺 رابط Google Apps Script لجلب فيديوهات يوتيوب (اختياري)</label><input id="gytscript" value="${esc(S.settings.ytScript || '')}" placeholder="https://script.google.com/macros/s/.../exec">
       <details style="margin-top:8px"><summary>📄 كود Google Apps Script (انسخيه والصقيه في script.google.com)</summary><pre style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:12px;max-height:260px;overflow:auto;background:#f6f6f6;color:#222;padding:8px;border-radius:8px">${esc(YT_SCRIPT_CODE)}</pre><button class="btn sm" data-act="copyText" data-t="${esc(YT_SCRIPT_CODE)}">📋 نسخ الكود</button></details></div>`)}
-    ${sec('security', `<div class="card"><h3>🔐 رمز ولي الأمر</h3>
-      <label class="f">رمز ولي الأمر (اتركيه فارغاً للإبقاء على الرمز الحالي)</label><input id="gpin" type="password" inputmode="numeric" value="" placeholder="${S.settings.pin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : 'لا يوجد رمز بعد'}">
+    ${sec('security', `<div class="card"><h3>🔐 رمز مدير النظام</h3>
+      <label class="f">رمز مدير النظام (اتركيه فارغاً للإبقاء على الرمز الحالي)</label><input id="gpin" type="password" inputmode="numeric" value="" placeholder="${S.settings.pin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : 'لا يوجد رمز بعد'}">
       <label class="chk" style="margin-top:6px"><input type="checkbox" id="gpinclear"> 🗑️ إزالة الرمز</label>
-      <label class="f" style="margin-top:10px">رمز ولي الأمر (للمتابعة فقط: الأطفال والتقارير والمحتوى، بدون الإعدادات والنسخ والحذف)</label><input id="gguard" type="password" inputmode="numeric" value="" placeholder="${S.settings.guardPin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : (S.settings.pin ? 'لا يوجد رمز بعد' : 'أنشئي رمز المدير أولاً')}" ${S.settings.pin ? '' : 'disabled'}></div>${securityHtml()}`)}
+</div>${securityHtml()}`)}
+    ${sec('agents', agentsHtml())}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
     ${sec('about', PARENT.tips())}
@@ -3991,6 +4047,18 @@ const ACT = {
   shareText: d => { if (navigator.share) navigator.share({text:d.t}).catch(() => {}); else copyText(d.t); },
   // ولي الأمر
   openParent,
+  agentAdd: d => {
+    if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
+    const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
+    if (!name) return toast('اكتبي اسم الوكيل');
+    if (pin.length < 4) return toast('الرمز 4 أرقام على الأقل');
+    const h = hashPin(pin);
+    if (h === S.settings.pin || agents().some(a => a.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
+    agents().push({id:'ag' + Date.now().toString(36), name, pin:h, perms:AGENT_TEMPLATES[d.t].perms.slice(), until});
+    save(); toast('تمت إضافة الوكيل ✅'); renderParent();
+  },
+  agentTpl: d => { const a = agents().find(x => x.id === d.id), t = AGENT_TEMPLATES[d.t]; if (!a || !t) return; a.perms = t.perms.slice(); save(); toast('تم تطبيق القالب ✅'); renderParent(); },
+  agentDel: d => { S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('أُلغيت الوكالة'); renderParent(); },
   ptab: d => { UI.ptab = d.t; UI.editWord = null; UI.kidPage = null; UI.pMenuOpen = false; renderParent(); },
   openKid: d => { UI.kidPage = d.id; UI.kidSec = 'profile'; renderParent(); window.scrollTo(0, 0); },
   kidSec: d => { UI.kidSec = d.k; renderParent(); window.scrollTo(0, 0); },
@@ -4240,6 +4308,9 @@ const ACT = {
   resetAll: async () => { if (!(await confirmBox('تصفير كل البيانات؟', 'يعود البرنامج إلى حالته الأولى.'))) return; exportBackup(); S = defaultState(); applyTheme(); UI.pchild = S.children[0].id; save(); renderParent(); toast('تم التصفير'); }
 };
 const CHANGE = {
+  // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
+  agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
+  agentUntil: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; a.until = t.value || ''; save(); renderParent(); },
   // اختيار المستوى يملأ حقول النطاق بقيم المستوى (نفس منطق الحفظ اليدوي والترقية)
   levelPick: t => { const cid = t.id.replace('klev_', ''), m = LEVEL_MATH[+t.value - 1]; if (!m) return; ['kx_', 'ka_', 'ks_'].forEach(pre => { const el = $('#' + pre + cid); if (el) el.value = m; }); },
   darkMode: t => { S.settings.dark = t.checked; save(); applyTheme(); },
@@ -5142,8 +5213,9 @@ Object.assign(ACT, {
   }
 });
 document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !$('#app').contains(b)) return; const fn = ACT[b.dataset.act]; if (!fn) return;
-  const denied = UI.parentOk && UI.parentRole === 'guardian' && (ADMIN_ONLY_ACTS.has(b.dataset.act) || (b.dataset.act === 'ptab' && ADMIN_TABS.has(b.dataset.t)));
-  if (denied) return toast('هذه الصلاحية لمدير النظام فقط');
+  const denied = guardDenied(b.dataset.act, b.dataset);
+  if (denied === 'expired') { toast('انتهت وكالتك، أعيدي الدخول'); UI.parentOk = false; return go(renderHome); }
+  if (denied) return toast(denied);
   fn(b.dataset, b); });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.change && CHANGE[t.dataset.change]) CHANGE[t.dataset.change](t); });
 
