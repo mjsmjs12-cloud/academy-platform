@@ -1814,7 +1814,7 @@ async function useRecovery(){
   if (!r.v) return;
   const norm = (r.input || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if ((await sha256hex(norm)) !== S.settings.recHash) return toast('رمز الاسترداد غير صحيح');
-  S.settings.pin = ''; delete S.settings.recHash; save();
+  S.settings.pin = ''; delete S.settings.recHash; delete S.settings.guardPin; save();
   toast('أُلغي رمز ولي الأمر القديم، أنشئي رمزاً جديداً');
   await openParent();
 }
@@ -2960,11 +2960,25 @@ function pinMatches(input){
   if (input === st) { S.settings.pin = hashPin(input); save(); return true; }
   return false;
 }
+// دور الدخول: مدير النظام (الرمز الرئيسي) أو ولي الأمر (رمز المتابعة)
+function pinRole(input){
+  if (pinMatches(input)) return 'admin';
+  const g = S.settings.guardPin || '';
+  return g && hashPin(input) === g ? 'guardian' : null;
+}
+// صلاحيات مدير النظام فقط: الإعدادات والرمز والنسخ الاحتياطي والحذف
+const ADMIN_TABS = new Set(['settings']);
+const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll',
+  'delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 function savePinFromForm(){
   const el = $('#gpin'); if (!el) return;
   const v = (el.value || '').trim(), clr = !!($('#gpinclear') && $('#gpinclear').checked);
-  if (clr) S.settings.pin = ''; else if (v) S.settings.pin = hashPin(v);
+  if (clr) { S.settings.pin = ''; delete S.settings.guardPin; } else if (v) S.settings.pin = hashPin(v);
+  // رمز ولي الأمر: يُحفظ فقط بعد وجود رمز المدير، ولا يطابق رمز المدير
+  const gv = (($('#gguard') || {}).value || '').trim();
+  if (gv && S.settings.pin && hashPin(gv) !== S.settings.pin) S.settings.guardPin = hashPin(gv);
 }
 let parentTimer = null;
 function armParentTimer(){
@@ -2975,6 +2989,7 @@ document.addEventListener('click', () => { if (UI.parentOk) armParentTimer(); })
 async function openParent(){
   // الدخول يتطلب رمزاً: إن لم يكن هناك رمز بعد يُطلب إنشاؤه أولاً
   if (!UI.parentOk) {
+    UI.parentRole = 'admin';
     if (!S.settings.pin) {
       const c = await modal('🔐 إنشاء رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="أدخلي رمزاً" style="text-align:center;font-size:22px">', [{label:'حفظ', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
       if (!c.v || !c.input) { toast('يجب إنشاء رمز لدخول لوحة ولي الأمر'); return; }
@@ -2983,7 +2998,8 @@ async function openParent(){
     } else {
       const r = await modal('🔒 رمز ولي الأمر', '<input type="password" inputmode="numeric" placeholder="الرمز" style="text-align:center;font-size:22px">', [{label:'دخول', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
       if (!r.v) return;
-      if (!pinMatches(r.input)) {
+      UI.parentRole = pinRole(r.input);
+      if (!UI.parentRole) {
         const f = await modal('الرمز غير صحيح', 'هل نسيتِ الرمز؟ يمكنك استخدام رمز الاسترداد.', [{label:'استخدام رمز الاسترداد', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
         if (f.v) await useRecovery();
         return;
@@ -3004,11 +3020,13 @@ const PARENT_GROUPS = [
 const PARENT_LABELS = {kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 function renderParent(){
   applyTheme();
-  const cur = PARENT_LABELS[UI.ptab] ? UI.ptab : 'reports';
+  const guard = UI.parentRole === 'guardian';
+  const groups = guard ? PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(k => !ADMIN_TABS.has(k))]).filter(([, keys]) => keys.length) : PARENT_GROUPS;
+  const cur = PARENT_LABELS[UI.ptab] && !(guard && ADMIN_TABS.has(UI.ptab)) ? UI.ptab : 'reports';
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
   <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
-  <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${PARENT_GROUPS.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
+  <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
   <div>${PARENT[cur]()}</div>`;
 }
 // الكؤوس: تُستحق بالفوز في المسابقات، وبعدد النجوم، وبعدد المهارات المتقنة
@@ -3251,7 +3269,8 @@ const PARENT = {
       <details style="margin-top:8px"><summary>📄 كود Google Apps Script (انسخيه والصقيه في script.google.com)</summary><pre style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:12px;max-height:260px;overflow:auto;background:#f6f6f6;color:#222;padding:8px;border-radius:8px">${esc(YT_SCRIPT_CODE)}</pre><button class="btn sm" data-act="copyText" data-t="${esc(YT_SCRIPT_CODE)}">📋 نسخ الكود</button></details></div>`)}
     ${sec('security', `<div class="card"><h3>🔐 رمز ولي الأمر</h3>
       <label class="f">رمز ولي الأمر (اتركيه فارغاً للإبقاء على الرمز الحالي)</label><input id="gpin" type="password" inputmode="numeric" value="" placeholder="${S.settings.pin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : 'لا يوجد رمز بعد'}">
-      <label class="chk" style="margin-top:6px"><input type="checkbox" id="gpinclear"> 🗑️ إزالة الرمز</label></div>${securityHtml()}`)}
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="gpinclear"> 🗑️ إزالة الرمز</label>
+      <label class="f" style="margin-top:10px">رمز ولي الأمر (للمتابعة فقط: الأطفال والتقارير والمحتوى، بدون الإعدادات والنسخ والحذف)</label><input id="gguard" type="password" inputmode="numeric" value="" placeholder="${S.settings.guardPin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : (S.settings.pin ? 'لا يوجد رمز بعد' : 'أنشئي رمز المدير أولاً')}" ${S.settings.pin ? '' : 'disabled'}></div>${securityHtml()}`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
     ${sec('about', PARENT.tips())}
@@ -5122,7 +5141,10 @@ Object.assign(ACT, {
     speechSynthesis.speak(u);
   }
 });
-document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !$('#app').contains(b)) return; const fn = ACT[b.dataset.act]; if (fn) fn(b.dataset, b); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !$('#app').contains(b)) return; const fn = ACT[b.dataset.act]; if (!fn) return;
+  const denied = UI.parentOk && UI.parentRole === 'guardian' && (ADMIN_ONLY_ACTS.has(b.dataset.act) || (b.dataset.act === 'ptab' && ADMIN_TABS.has(b.dataset.t)));
+  if (denied) return toast('هذه الصلاحية لمدير النظام فقط');
+  fn(b.dataset, b); });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.change && CHANGE[t.dataset.change]) CHANGE[t.dataset.change](t); });
 
 view().innerHTML = '<p class="center muted">جارٍ تحميل البيانات…</p>';
