@@ -304,11 +304,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 #brand{position:sticky;top:0;z-index:60;text-align:center;font-weight:800;font-size:15px;padding:8px 10px;background:var(--grad);color:#fff;letter-spacing:.3px}
 .env-btn{position:absolute;inset-inline-end:10px;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:999px;border:none;background:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center}
 .env-btn[hidden]{display:none}
+.back-btn{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:999px;border:none;background:#fff;font-size:18px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center}
+.back-btn[hidden]{display:none}
 .env-btn .env-pill{position:absolute;top:-4px;inset-inline-end:-4px;background:#e35d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:1px 6px;line-height:1.4}
 </style>
 </head>
 <body>
-<div id="brand"><span>🌸 أكاديمية أبو نصره 🌸</span><button id="envBtn" class="env-btn" hidden aria-label="الرسائل"></button></div>
+<div id="brand"><span>🌸 أكاديمية أبو نصره 🌸</span><button id="backBtn" class="back-btn" data-act="back" hidden aria-label="الرجوع إلى الشاشة السابقة">→</button><button id="envBtn" class="env-btn" hidden aria-label="الرسائل"></button></div>
 <div id="app"><main id="view"></main></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast"></div>
@@ -2207,6 +2209,7 @@ function go(fn){
 }
 // زر الظرف في أعلى الشاشة: للطفلة يفتح مراسلتها، ولولي الأمر يفتح صفحة الرسائل
 function updateEnvelope(){
+  const bb = $('#backBtn'); if (bb) bb.hidden = !NAV.length;
   const el = $('#envBtn'); if (!el) return;
   const kid = UI.kid && CH(UI.kid) && !CH(UI.kid).chatOff ? UI.kid : null;
   if (!kid && !UI.parentOk) { el.hidden = true; return; }
@@ -2231,6 +2234,40 @@ window.addEventListener('popstate', () => {
   if (UI.parentOk) return renderParent();
   renderHome();
 });
+// الشاشة الرئيسية لمدير النظام: مدخل واحد لكل أقسام الإدارة
+function renderAdminHome(){
+  if (!UI.parentOk || UI.parentRole !== 'admin') return renderHome();
+  applyTheme(); ensureActivity();
+  const unread = unreadCount(), frozen = S.children.filter(c => isFrozenNow(c)).length;
+  const tile = (t, sec, em, title, sub, badge = '') => `<button class="set-card" data-act="adminGo" data-t="${t}" data-s="${sec}"><span class="set-ico">${em}</span><span class="set-txt"><b>${title} ${badge}</b><small>${sub}</small></span><span class="set-go">‹</span></button>`;
+  view().innerHTML = `
+  <div class="row between"><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><h2>👑 الشاشة الرئيسية</h2></div>
+  <div class="dash-sum">
+    <div class="dsum"><b>${S.children.length}</b><span>أطفال</span></div>
+    <div class="dsum ${unread ? 'warn' : ''}"><b>${unread}</b><span>رسائل جديدة</span></div>
+    <div class="dsum ${frozen ? 'bad' : ''}"><b>${frozen}</b><span>حسابات مجمّدة</span></div>
+    <div class="dsum"><b>${agents().length}</b><span>وكلاء</span></div></div>
+  <h4 class="grp">📊 المتابعة</h4>
+  <div class="set-grid">
+    ${tile('dash', '', '📊', 'لوحة التحكم', 'ملخص الأطفال والتنبيهات')}
+    ${tile('reports', '', '📈', 'التقارير', 'تقارير الوقت والمهارات')}
+    ${tile('inbox', '', '📥', 'الرسائل والتعميم', 'رسائل الأطفال والتعميم', unread ? `<span class="pill">${unread}</span>` : '')}
+    ${tile('notes', '', '📝', 'الملاحظات', 'ملاحظات المتابعة والإجراءات')}
+  </div>
+  <h4 class="grp">📚 الأطفال والمحتوى</h4>
+  <div class="set-grid">
+    ${tile('kids', '', '👧', 'الأطفال وملفاتهم', 'إضافة الأطفال وتعديل ملفاتهم')}
+    ${tile('words', '', '📚', 'المحتوى', 'الكلمات والأذكار والقصص والفيديو')}
+    ${tile('print', '', '🖨️', 'الطباعة', 'طباعة التقارير والشهادات')}
+  </div>
+  <h4 class="grp">👑 الإدارة</h4>
+  <div class="set-grid">
+    ${tile('settings', 'security', '🔐', 'الأمان ورمز المدير', 'رمز الدخول واسم مدير النظام')}
+    ${tile('settings', 'agents', '👥', 'الوكلاء وصلاحياتهم', 'إنشاء الوكلاء وتحديد صلاحياتهم')}
+    ${tile('settings', 'backup', '💾', 'النسخ الاحتياطي والمزامنة', 'رابط الدخول من الأجهزة')}
+    ${tile('settings', 'display', '⚙️', 'الإعدادات العامة', 'المظهر والصوت والقرآن والتذكير')}
+  </div>`;
+}
 function renderHome(){
   stopQuranAudio();
   UI.parentOk = false; applyTheme();
@@ -3445,7 +3482,7 @@ function enterParent(role, agent){
   UI.parentOk = true; UI.parentRole = role; UI.agentId = agent ? agent.id : null;
   UI.kid = null; NAV.length = 0; CUR = null; UI.ptab = 'dash'; armParentTimer();
   if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
-  go(renderParent);
+  go(role === 'admin' ? renderAdminHome : renderParent);
 }
 // قائمة صفحة ولي الأمر مجمّعة حسب نوع البيانات: الأطفال والمتابعة، ثم المحتوى، ثم الأدوات، ثم النظام
 const PARENT_GROUPS = [
@@ -4149,7 +4186,7 @@ async function copyText(t){
 
 // ===== الأحداث =====
 const ACT = {
-  home: () => (UI.kid ? ACT.back() : go(renderHome)),
+  home: () => (UI.kid ? ACT.back() : (UI.parentOk && UI.parentRole === 'admin' ? go(renderAdminHome) : go(renderHome))),
   // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفل الرئيسية
   back: () => {
     if (NAV.length) return history.back();
@@ -4646,6 +4683,7 @@ const ACT = {
   // لوحة التحكم: فتح تقرير طفل محددة
   dashReport: d => { UI.pchild = d.id; UI.ptab = 'reports'; renderParent(); },
   // دخول ولي الأمر إلى صفحة الطفل مباشرة (بدون رمز الطفل ودون تسجيل دخول)
+  adminGo: d => { UI.pMenuOpen = false; if (d.t === 'settings') { UI.ptab = 'settings'; UI.setSec = d.s || ''; } else UI.ptab = d.t; go(renderParent); },
   envParent: () => { if (!UI.parentOk) return toast('هذه الصفحة لولي الأمر فقط'); UI.ptab = 'inbox'; UI.pMenuOpen = false; go(renderParent); },
   kidAs: d => {
     const c = CH(d.id);
