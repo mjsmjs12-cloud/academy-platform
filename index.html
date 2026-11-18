@@ -271,9 +271,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .cup-row{margin:12px 0}
 .cup-row .bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin-top:6px}
 .cup-row .bar>div{height:100%;background:var(--grad);border-radius:8px}
+#brand{position:sticky;top:0;z-index:60;text-align:center;font-weight:800;font-size:15px;padding:8px 10px;background:var(--grad);color:#fff;letter-spacing:.3px}
 </style>
 </head>
 <body>
+<div id="brand">🌸 أكاديمية أبو نصره 🌸</div>
 <div id="app"><main id="view"></main></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast"></div>
@@ -2068,6 +2070,8 @@ function renderChild(id){
   <div class="tiles-grid">
     <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
   </div>
+  <div class="card" style="text-align:center"><b>🎚️ مستواي</b> <span class="muted">اختاري المستوى الذي تريدينه</span>
+    <div class="row center" style="flex-wrap:wrap;gap:6px;margin-top:8px">${LEVEL_LABELS5.map((l, i) => `<button class="btn sm ${levelRaw(c) === i + 1 ? '' : 'ghost'}" data-act="setMyLevel" data-id="${esc(id)}" data-n="${i + 1}">${l}</button>`).join('')}</div></div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
   ${kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')])}
   <div class="tiles-grid">
@@ -3780,6 +3784,12 @@ const ACT = {
   openChild: d => go(() => renderChild(d.id)),
   adhkar: d => go(() => renderAdhkar(d.id)),
   // لون ملف البنت (البطاقة والواجهة الرئيسية)، تختاره البنت من صفحتها
+  // اختيار المستوى من الطفلة نفسها، بنفس أثر التغيير من ملف البنت
+  setMyLevel: d => {
+    const c = CH(d.id), n = +d.n; if (!c || !n || n === levelRaw(c)) return;
+    c.level = n; c.levelSince = Date.now(); const m = LEVEL_MATH[n - 1]; c.mathMax = m; c.addMax = m; c.subMax = m;
+    save(); toast('تم اختيار المستوى: ' + LEVEL_LABELS5[n - 1] + ' ✅'); renderChild(d.id);
+  },
   profilePick: d => { UI.pickProfile = UI.pickProfile === d.id ? null : d.id; renderChild(d.id); },
   profileColor: d => { const c = CH(d.id); if (!c) return; c.color = d.c; c.colorSet = true; UI.pickProfile = null; save(); toast('تم تغيير لون ملفك ✨'); renderChild(d.id); },
   girlColor: d => { const c = CH(d.id); if (!c) return; c.theme = d.c; applyTheme(c.theme); save(); toast('تم تغيير اللون 🎨'); renderChild(d.id); },
@@ -5153,7 +5163,7 @@ function weekTrackOf(cid){
 function renderWeekPlan(id){
   const c = CH(id), plan = WEEK_PLANS[id], wt = weekTrackOf(id);
   view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="smart" data-id="${esc(id)}">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
-  <div class="hero"><h1>📅 خطة الأسبوع: القراءة والخط</h1><div class="muted">${plan ? esc(plan.title) : 'خطة مخصصة لريما ويمامة'}</div></div>
+  <div class="hero"><h1>📅 خطة الأسبوع: القراءة والخط</h1><div class="muted">${plan ? esc(plan.title) : 'خطة مخصصة لكل طفل'}</div></div>
   ${plan ? `
   <div class="card"><h3>🎯 أهداف الأسبوع</h3><ul>${plan.goals.map(g => `<li>${esc(g)}</li>`).join('')}</ul><p class="muted">المدة المقترحة: ${esc(plan.time)}</p></div>
   <div class="card"><h3>🗓️ جدول الأيام</h3><div class="tbl-wrap"><table><tr><th>اليوم</th><th>القراءة</th><th>الخط والكتابة</th></tr>${plan.days.map(([d, r, w]) => `<tr><td>${d}</td><td>${esc(r)}</td><td>${esc(w)}</td></tr>`).join('')}</table></div></div>
@@ -5165,7 +5175,7 @@ function renderWeekPlan(id){
     <label class="f">ملاحظات ولي الأمر</label><textarea data-change="weekNote" data-id="${esc(id)}" rows="3">${esc(wt.notes)}</textarea>
   </div>
   <div class="card"><h3>🏁 معيار النجاح</h3><p class="muted">تسجيل الأخطاء الفعلية، وتحديد مهارة واحدة تحتاج إعادة تدريب في الأسبوع القادم. التدرج والثبات أهم من كثرة الواجبات.</p></div>`
-  : `<div class="card"><p class="muted">الخطة المكتوبة متاحة لريما ويمامة. يمكن إضافة خطة لغيرهما لاحقاً.</p></div>`}`;
+  : `<div class="card"><p class="muted">الخطة المكتوبة متاحة للأطفال في الأكاديمية. يمكن إضافة خطة لكل طفل لاحقاً.</p></div>`}`;
 }
 Object.assign(ACT, {
   weekPlan: d => go(() => renderWeekPlan(d.id)),
