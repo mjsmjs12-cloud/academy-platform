@@ -43,6 +43,9 @@ module.exports = async (req, res) => {
     res.setHeader('Allow', 'GET, PUT');
     return res.status(405).json({ error: 'الطريقة غير مسموحة' });
   } catch (e) {
-    return res.status(500).json({ error: 'خطأ في الخادم' });
+    // سبب واضح: رمز الاستجابة من Upstash إن وُجد (مثل 401 = الرمز غير صحيح)
+    const m = /^kv (\d{3})$/.exec(e.message || '');
+    const why = m ? 'خطأ في التخزين السحابي (رمز ' + m[1] + ')' : 'خطأ في الخادم';
+    return res.status(500).json({ error: why });
   }
 };
