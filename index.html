@@ -2027,6 +2027,7 @@ function renderLogin(){
     <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
+    <div id="frozenBox"></div>
   </div>
   <div class="card" style="max-width:420px;margin:12px auto">
     <h3>🔐 دخول مدير النظام (الوالد)</h3>
@@ -2070,7 +2071,7 @@ function renderChild(id){
   <div class="tiles-grid">
     <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
   </div>
-  <div class="card" style="text-align:center"><b>🎚️ مستواي</b> <span class="muted">اختاري المستوى الذي تريدينه</span>
+  <div class="card" style="text-align:center"><b>🎚️ مستواي</b> <span class="muted">اختاري المستوى، وتظهر لك مهاراته ومهارات المستويات قبله فقط</span>
     <div class="row center" style="flex-wrap:wrap;gap:6px;margin-top:8px">${LEVEL_LABELS5.map((l, i) => `<button class="btn sm ${levelRaw(c) === i + 1 ? '' : 'ghost'}" data-act="setMyLevel" data-id="${esc(id)}" data-n="${i + 1}">${l}</button>`).join('')}</div></div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
   ${kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')])}
@@ -2523,7 +2524,8 @@ function focusPicker(c, lang){
 }
 function renderSubject(id, sub){
   const c = CH(id), rs = allResults(id), S0 = SUBJECTS[sub];
-  const skills = Object.entries(SKILLS).filter(([, v]) => v.sub === sub);
+  // مهارات المستوى المختار فقط (المستوى الأول يعرض مهارات الأول، والثاني يضيف مهارات الثاني، وهكذا)
+  const skills = Object.entries(SKILLS).filter(([k, v]) => v.sub === sub && skillAllowed(c, k));
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
   <h2 style="text-align:center">${S0.em} ${S0.n}</h2>
@@ -3052,6 +3054,14 @@ function weekPresent(c){
   for (let i = 0; i < 7; i++) { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i); const k = dayKeyOf(d); if (k >= from && (att[k] || 0) > 0) n++; }
   return n;
 }
+// ===== مراسلة مدير النظام: طلب تفعيل أو رسالة من الطفلة أو الوكيل =====
+// الرسائل محفوظة على هذا الجهاز مع بيانات الأكاديمية
+function sendToAdmin(from, name, text, kind, cid){
+  S.inbox = S.inbox || [];
+  S.inbox.push({id:'m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), from, name, text: String(text || '').trim().slice(0, 500), kind, cid: cid || null, at: Date.now(), read: false});
+  save();
+}
+const unreadCount = () => (S.inbox || []).filter(m => !m.read).length;
 // تنبيهات الدخول لبنات الوكيل (أو كل البنات للمدير)
 function alertsHtml(){
   const rows = visibleKids().map(c => {
@@ -3059,6 +3069,7 @@ function alertsHtml(){
     if (isFrozenNow(c)) return `<div class="row" style="gap:6px">🔒 <b>${esc(c.name)}</b>: الحساب مجمّد، لم تدخل منذ ${d} يوم</div>`;
     return d >= INACTIVE_NOTICE_DAYS ? `<div class="row" style="gap:6px">🔔 <b>${esc(c.name)}</b>: لم تدخل منذ ${d} يوم</div>` : '';
   }).filter(Boolean);
+  if (UI.parentRole === 'admin' && unreadCount()) rows.unshift(`<div class="row" style="gap:6px">📥 لديك <b>${unreadCount()}</b> رسالة جديدة في تبويب «الرسائل»</div>`);
   return rows.length ? `<div class="card" style="border-right:6px solid #f0a500"><h3>🔔 تنبيهات الدخول</h3>${rows.join('')}</div>` : '';
 }
 // حالة الحساب في ملف البنت، مع زر إعادة التفعيل لمدير النظام فقط
@@ -3086,7 +3097,7 @@ function guardDenied(act, d){
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 function agentsHtml(){
@@ -3128,12 +3139,12 @@ function enterParent(role, agent){
 }
 // قائمة صفحة ولي الأمر مجمّعة حسب نوع البيانات: الأطفال والمتابعة، ثم المحتوى، ثم الأدوات، ثم النظام
 const PARENT_GROUPS = [
-  ['👧 الأطفال والمتابعة', ['dash','kids','reports','notes']],
+  ['👧 الأطفال والمتابعة', ['dash','kids','reports','notes','inbox']],
   ['📚 المحتوى', ['words','adhkar','content','yt','tg']],
   ['🖨️ الأدوات', ['print']],
   ['⚙️ النظام', ['settings']]
 ];
-const PARENT_LABELS = {dash:'🏠 لوحة التحكم', kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'📥 الرسائل', kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 function renderParent(){
   applyTheme(); ensureActivity();
   const guard = UI.parentRole === 'guardian';
@@ -3297,6 +3308,18 @@ function recommendations(cid){
 const SETTINGS_SECS = [['display','🎨','المظهر والأرقام'],['voice','🔊','الصوت والقراءة'],['quran','🕌','القرآن والفيديوهات'],['security','🔐','الأمان ورمز المدير'],['agents','👥','الوكلاء وصلاحياتهم'],['health','🌿','التذكير والاستراحة'],['backup','💾','النسخ الاحتياطي والمزامنة'],['about','ℹ️','عن البرنامج والنصائح']];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل بنت مسندة إليه، مع الوصول إلى تقريرها الكامل
+  // رسائل الطفلات والوكلاء الواردة إلى مدير النظام
+  inbox(){
+    const list = (S.inbox || []).slice().reverse();
+    if (!list.length) return `<div class="card"><h3>📥 الرسائل</h3><p class="muted">لا توجد رسائل.</p></div>`;
+    return `<div class="card"><h3>📥 الرسائل (${unreadCount()} جديدة)</h3>${list.map(m => {
+      const kid = m.cid ? CH(m.cid) : null, frozen = kid && isFrozenNow(kid);
+      return `<div class="card" style="border-right:6px solid ${m.read ? '#ccc' : '#c73f70'}">
+        <div class="row between"><b>${esc(m.name)}</b><span class="muted" style="font-size:12px">${esc(new Date(m.at).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'}))}</span></div>
+        <p>${m.kind === 'activate' ? '🔓 <b>طلب تفعيل:</b> ' : ''}${esc(m.text || '—')}</p>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${m.read ? '' : `<button class="btn sm ghost" data-act="inboxRead" data-id="${esc(m.id)}">✅ تم التعامل</button>`}${frozen ? `<button class="btn sm ok" data-act="reactivateKid" data-id="${esc(kid.id)}">🔓 إعادة تفعيل ${esc(kid.name)}</button>` : ''}<button class="btn sm danger" data-act="inboxDel" data-id="${esc(m.id)}">🗑️ حذف</button></div></div>`;
+    }).join('')}</div>`;
+  },
   dash(){
     const kids = visibleKids(), admin = UI.parentRole === 'admin';
     if (!kids.length) return `<div class="card"><h3>🏠 لوحة التحكم</h3><p class="muted">لا توجد بنات مسندة إليك بعد.</p></div>`;
@@ -3775,7 +3798,7 @@ const ACT = {
       msg.textContent = 'الاسم أو الرمز غير صحيح، تأكدي من كتابة الاسم كما هو في الملف';
       return;
     }
-    if (isFrozenNow(c)) { if (!c.frozen) { c.frozen = true; save(); } msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر. تواصلي مع ولي الأمر لإعادة تفعيله'; return; }
+    if (isFrozenNow(c)) { if (!c.frozen) { c.frozen = true; save(); } msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر. أرسلي طلب التفعيل لمدير النظام'; $('#frozenBox').innerHTML = `<label class="f">رسالة لمدير النظام</label><textarea id="frzMsg" rows="2" style="width:100%"></textarea><div class="row center" style="margin-top:8px"><button class="btn sm ok" data-act="sendFrozen" data-id="${esc(c.id)}">📨 إرسال طلب التفعيل</button></div>`; return; }
     recordLogin(c); save();
     UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
   },
@@ -4020,7 +4043,7 @@ const ACT = {
   myStars: d => go(() => renderStars(d.id)),
   daily: d => { const c = CH(d.id), plan = buildDailyQueue(c); startRun(c, plan.queue, {guided:true, title:`اليوم ${plan.day}: ${plan.title}`}); },
   practice: d => startRun(CH(d.id), Array(8).fill(d.skill), {title:SKILLS[d.skill].n}),
-  mixed: d => { const sk = Object.keys(SKILLS).filter(s => SKILLS[s].sub === d.sub && s !== 'ar_read_aloud' && s !== 'ar_writing'); startRun(CH(d.id), Array.from({length:12}, () => pick(sk)), {title:'تدريب منوّع: ' + SUBJECTS[d.sub].n}); },
+  mixed: d => { const sk = Object.keys(SKILLS).filter(s => SKILLS[s].sub === d.sub && s !== 'ar_read_aloud' && s !== 'ar_writing' && skillAllowed(CH(d.id), s)); startRun(CH(d.id), Array.from({length:12}, () => pick(sk)), {title:'تدريب منوّع: ' + SUBJECTS[d.sub].n}); },
   quitRun,
   replay: () => { const q = RUN.q; if (q.audioIsHint) { RUN.hinted = true; speak(q.hintSay); } else speak(questionAudio(q)); },
   skipQ: () => { if (!RUN || RUN.resolved) return; RUN.idx++; nextQuestion(); },
@@ -4173,7 +4196,12 @@ const ACT = {
       if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
       return toast('الرمز غير صحيح');
     }
-    if (!isActive(a)) return toast('انتهت وكالتك، اطلبي من مدير النظام تجديدها');
+    if (!isActive(a)) {
+      const m = await modal('انتهت وكالتك', '<input id="agReq" placeholder="اكتبي طلب التجديد لمدير النظام" style="font-size:16px">', [{label:'إرسال الطلب', val:1}, {label:'إغلاق', val:0, cls:'ghost'}]);
+      const t = ((m.input || '').trim());
+      if (m.v && t) { sendToAdmin('agent:' + a.id, a.name, t, 'activate', null); toast('تم إرسال طلب التجديد ✅'); }
+      return;
+    }
     UI.loginFails = 0;
     enterParent('guardian', a);
   },
@@ -4371,7 +4399,10 @@ const ACT = {
     if (levelRaw(c) !== oldLevel) { const m = LEVEL_MATH[levelRaw(c) - 1]; c.mathMax = m; c.addMax = m; c.subMax = m; }
     save(); renderParent(); toast('تم الحفظ');
   },
-  reactivateKid: d => { const c = CH(d.id); if (!c) return; c.frozen = false; c.lastLogin = Date.now(); save(); toast('تمت إعادة تفعيل الحساب ✅'); renderParent(); },
+  sendFrozen: d => { const c = CH(d.id); if (!c) return; const t = (($('#frzMsg') || {}).value || '').trim(); if (!t) return toast('اكتبي رسالتك أولاً'); sendToAdmin('child:' + c.id, c.name, t, 'activate', c.id); toast('تم إرسال الطلب لمدير النظام ✅'); $('#frozenBox').innerHTML = ''; },
+  inboxRead: d => { const m = (S.inbox || []).find(x => x.id === d.id); if (m) { m.read = true; save(); renderParent(); } },
+  inboxDel: d => { S.inbox = (S.inbox || []).filter(x => x.id !== d.id); save(); renderParent(); },
+  reactivateKid: d => { const c = CH(d.id); if (!c) return; c.frozen = false; c.lastLogin = Date.now(); (S.inbox || []).forEach(m => { if (m.cid === c.id) m.read = true; }); save(); toast('تمت إعادة تفعيل الحساب ✅'); renderParent(); },
   addKid: () => { const id = uid(); S.children.push(Object.assign(newChild(id, 'اسم جديد', '⭐', '#3aa0d8'), {lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())})); const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id); save(); renderParent(); },
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
