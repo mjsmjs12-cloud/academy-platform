@@ -1742,6 +1742,7 @@ function kidSecHtml(c, sec){
         <div><label class="f">العمر</label><input type="number" id="kage_${id}" min="3" max="18" value="${c.age || ''}"></div>
         <div><label class="f">لون البنت</label><input type="color" id="kc_${id}" value="${esc(c.color)}" style="height:46px"></div>
         <div><label class="f">🔑 رمز دخول الطفلة (4 أرقام أو أكثر)</label><input type="password" inputmode="numeric" id="kcode_${id}" placeholder="${c.code ? 'تم تعيين رمز، اكتبي رمزاً جديداً للتغيير' : 'اكتبي الرمز'}"></div>
+        <div><label class="f">📧 بريد البنت (للدخول بالبريد)</label><input type="email" id="kemail_${id}" value="${esc(c.email || '')}" placeholder="name@example.com"></div>
         <div><label class="f">المستوى</label><select id="klev_${id}" data-change="levelPick">${LEVEL_LABELS5.map((l, i) => { const locked = i + 1 > levelRaw(c) && !levelOpen(c, i + 1); return `<option value="${i + 1}" ${levelRaw(c) === i + 1 ? 'selected' : ''} ${locked ? 'disabled' : ''}>${l} (حتى ${fmt(LEVEL_MATH[i])})${locked ? ' 🔒' : ''}</option>`; }).join('')}</select></div>
         <div><label class="f">مدة الجلسة (دقيقة)</label><select id="km_${id}">${[0, 10, 15, 20, 25, 30, 40, 45].map(v => `<option value="${v}" ${c.minutes === v ? 'selected' : ''}>${v ? v + ' دقيقة' : 'مفتوح (بدون وقت)'}</option>`).join('')}</select></div>
       </div>
@@ -2208,6 +2209,23 @@ function renderHome(){
 }
 // الاسم للمقارنة: بلا تشكيل، وبتوحيد الألف والياء والتاء المربوطة
 const normName = s => String(s || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').trim().toLowerCase();
+// دخول الطفلة بالبريد: يظهر فقط إذا كانت الخدمة مفعّلة وللجهاز رابط محفوظ
+const EMAIL_API = '/api/email-login';
+async function emailApi(action, body){
+  const r = await fetch(EMAIL_API + '?action=' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'تعذّر الاتصال بالخادم');
+  return d;
+}
+function emailLoginHtml(){
+  if (S.settings.emailLogin !== 'on' || !S.cloud || !S.cloud.f) return '';
+  return `<div class="emailbox" style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12)">
+    <h4 style="margin:0 0 6px">📧 الدخول بالبريد</h4>
+    <label class="f">البريد المسجل في ملف البنت</label><input id="lemail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
+    <div class="row center" style="margin-top:8px"><button class="btn sm" data-act="emailSend">📨 أرسلي الرمز</button></div>
+    <div id="emailStep2" hidden><label class="f" style="margin-top:8px">الرمز المكوّن من 6 أرقام</label><input id="lotp" inputmode="numeric" autocomplete="one-time-code" maxlength="6"><div class="row center" style="margin-top:8px"><button class="btn ok sm" data-act="emailVerify">🔓 دخول بالرمز</button></div></div>
+    <p id="emsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>`;
+}
 // شاشة الدخول: الاسم الأول + الرمز الخاص بالطفلة فقط (بدون قائمة الأطفال)
 function renderLogin(){
   CUR_CID = null; applyTheme();
@@ -2218,6 +2236,7 @@ function renderLogin(){
     <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
+    ${emailLoginHtml()}
     <div id="frozenBox"></div>
   </div>
   <div class="card" style="max-width:420px;margin:12px auto">
@@ -3746,7 +3765,14 @@ const PARENT = {
       <label class="f">رمز مدير النظام (اتركيه فارغاً للإبقاء على الرمز الحالي)</label><input id="gpin" type="password" inputmode="numeric" value="" placeholder="${S.settings.pin ? 'مُفعّل — اكتبي رمزاً جديداً للتغيير' : 'لا يوجد رمز بعد'}">
       <label class="chk" style="margin-top:6px"><input type="checkbox" id="gpinclear"> 🗑️ إزالة الرمز</label>
 
-      <label class="f" style="margin-top:10px">اسم مدير النظام (يُطلب مع الرمز عند الدخول)</label><input id="gadmname" value="${esc(S.settings.adminName || '')}"></div>${securityHtml()}`)}
+      <label class="f" style="margin-top:10px">اسم مدير النظام (يُطلب مع الرمز عند الدخول)</label><input id="gadmname" value="${esc(S.settings.adminName || '')}"></div>
+      <div class="card"><h3>📧 الدخول بالبريد</h3>
+      <label class="f">الحالة</label><select id="gemail">
+        <option value="on" ${S.settings.emailLogin === 'on' ? 'selected' : ''}>مفعّلة: تظهر على شاشة الدخول وتعمل</option>
+        <option value="hidden" ${S.settings.emailLogin === 'hidden' ? 'selected' : ''}>مخفية: تُحفظ الإعدادات ولا تظهر على شاشة الدخول</option>
+        <option value="off" ${(!S.settings.emailLogin || S.settings.emailLogin === 'off') ? 'selected' : ''}>ملغاة: تُعطَّل ويُمسح بريد البنات</option>
+      </select>
+      <p class="muted">الرمز يُرسل إلى بريد البنت المسجل في ملفها، ويصلح 10 دقائق، ولا يُقبل أكثر من 5 محاولات.</p></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
@@ -4114,6 +4140,28 @@ const ACT = {
     if (isFrozenNow(c)) { if (!c.frozen) { c.frozen = true; save(); } msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر. أرسلي طلب التفعيل لمدير النظام'; $('#frozenBox').innerHTML = `<label class="f">رسالة لمدير النظام</label><textarea id="frzMsg" rows="2" style="width:100%"></textarea><div class="row center" style="margin-top:8px"><button class="btn sm ok" data-act="sendFrozen" data-id="${esc(c.id)}">📨 إرسال طلب التفعيل</button></div>`; return; }
     recordLogin(c); save();
     UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
+  },
+  emailSend: async () => {
+    const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase();
+    if (!S.cloud || !S.cloud.f) { msg.textContent = 'هذا الدخول يحتاج الرابط المحفوظ'; return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'اكتبي بريداً صحيحاً'; return; }
+    msg.textContent = 'جارٍ الإرسال...';
+    try {
+      const d = await emailApi('send', { f: S.cloud.f, email });
+      $('#emailStep2').hidden = false;
+      msg.textContent = d.ok ? 'أُرسل الرمز إلى البريد إن كان مسجلاً. صلاحيته 10 دقائق.' : '';
+    } catch (e) { msg.textContent = e.message; }
+  },
+  emailVerify: async () => {
+    const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase(), code = (($('#lotp') || {}).value || '').trim();
+    try {
+      const d = await emailApi('verify', { f: S.cloud.f, email, code });
+      const c = S.children.find(k => k.id === d.childId);
+      if (!c) throw new Error('الملف غير موجود');
+      if (isFrozenNow(c)) { msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر'; return; }
+      recordLogin(c); save();
+      UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
+    } catch (e) { msg.textContent = e.message; }
   },
   kidLogout: () => { UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   achievements: () => go(renderAchievements),
@@ -4745,6 +4793,7 @@ const ACT = {
     if (has('ken')) c.enRoutine = $('#ken_' + c.id).checked;
     if (has('khn')) c.hideName = $('#khn_' + c.id).checked;
     if (has('kchat')) c.chatOff = !$('#kchat_' + c.id).checked;
+    if (has('kemail')) c.email = v('kemail').trim().toLowerCase();
     if (has('kcode') && v('kcode').trim()) {
       if (v('kcode').trim().length < 4) toast('رمز الدخول 4 خانات على الأقل، لم يُغيَّر الرمز');
       else { c.code = hashPin(v('kcode').trim()); c.codeSince = Date.now(); }
@@ -4785,6 +4834,7 @@ const ACT = {
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
     const qp = $('#gqrep'), qn = $('#gqnight');
+    if ($('#gemail')) { S.settings.emailLogin = $('#gemail').value; if (S.settings.emailLogin === 'off') S.children.forEach(c => { c.email = ''; }); }
     if (qp) S.settings.quranRepeat = +qp.value; if (qn) S.settings.quranNight = qn.checked; S.settings.ytScript = (($('#gytscript') || {value:''}).value || '').trim(); S.settings.driveFolder = (($('#gdfolder') || {value:''}).value || '').trim() || 'أكاديمية'; S.settings.digits = $('#gdig').value; S.settings.rate = +$('#grate').value; save(); toast('تم حفظ الإعدادات');
     const gd = (($('#gdrive') || {value:''}).value || '').trim(); if (gd && gd !== DRIVE.clientId) driveConnect(gd); },
   testAr: () => speak([['مَرْحَبًا يَا رِيمَا وَيَمَامَة، بَ، بَا، بَاب', 'ar']]),
