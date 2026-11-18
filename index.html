@@ -2977,8 +2977,9 @@ const DELETE_ACTS = new Set(['delK','delKid','delWord','delAdhkar','adhkarAudioD
 // قائمة الوكلاء، مع ترحيل رمز ولي الأمر القديم إلى وكيل واحد
 function agents(){
   if (!S.settings.agents) S.settings.agents = [];
+  S.settings.agents.forEach(a => { if (!Array.isArray(a.kids)) a.kids = S.children.map(c => c.id); });
   if (S.settings.guardPin) {
-    S.settings.agents.push({id:'ag' + Date.now().toString(36), name:'ولي الأمر', pin:S.settings.guardPin, perms:AGENT_TEMPLATES.full.perms.slice(), until:''});
+    S.settings.agents.push({id:'ag' + Date.now().toString(36), name:'ولي الأمر', pin:S.settings.guardPin, perms:AGENT_TEMPLATES.full.perms.slice(), until:'', kids:S.children.map(c => c.id)});
     delete S.settings.guardPin; save();
   }
   return S.settings.agents;
@@ -2993,6 +2994,10 @@ function pinRole(input){
   return isActive(a) ? {role:'guardian', agent:a} : {role:'expired', agent:a};
 }
 const currentAgent = () => agents().find(x => x.id === UI.agentId) || null;
+// البنات المرئيات: المدير يرى الكل، والوكيل يرى البنات المسندة إليه فقط (وقد يكون للوكيل أكثر من بنت)
+const visibleKids = () => { if (UI.parentRole !== 'guardian') return S.children; const a = currentAgent(); return a ? S.children.filter(c => a.kids.includes(c.id)) : []; };
+// أسماء الأولياء النشطين لكل بنت (وقد يكون للبنت أكثر من ولي أمر)
+const guardiansOf = cid => agents().filter(a => a.kids.includes(cid) && isActive(a)).map(a => a.name);
 const agentAllows = (perm) => { const a = currentAgent(); return !!a && isActive(a) && a.perms.includes(perm); };
 // سبب منع الإجراء للوكيل، أو null إن كان مسموحاً
 function guardDenied(act, d){
@@ -3002,6 +3007,7 @@ function guardDenied(act, d){
   if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
+  if ((act === 'pchild' || act === 'openKid') && !a.kids.includes(d.id)) return 'هذه البنت غير مسندة لهذا الوكيل';
   return null;
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
@@ -3013,6 +3019,7 @@ function agentsHtml(){
   const rows = agents().map(a => `<div class="card" style="margin-top:8px">
     <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${AGENT_PERMS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-change="agentPerm" data-id="${esc(a.id)}" data-p="${k}" ${a.perms.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><span class="muted">البنات:</span>${S.children.map(c => `<label class="chk"><input type="checkbox" data-change="agentKid" data-id="${esc(a.id)}" data-k="${esc(c.id)}" ${a.kids.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
     <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).map(([k, t]) => `<button class="btn sm ghost" data-act="agentTpl" data-id="${esc(a.id)}" data-t="${k}">${t.label}</button>`).join('')}
       <label class="f" style="margin:0">تنتهي في <input type="date" data-change="agentUntil" data-id="${esc(a.id)}" value="${esc(a.until || '')}"></label>
       <button class="btn sm ghost" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء الوكالة</button></div></div>`).join('');
@@ -3023,6 +3030,7 @@ function agentsHtml(){
       <label class="f">الاسم</label><input id="agName" placeholder="مثال: الجدة، المعلّمة">
       <label class="f">الرمز الخاص (4 أرقام على الأقل)</label><input id="agPin" type="password" inputmode="numeric">
       <label class="f">تنتهي في (اتركيه فارغاً للدائمة)</label><input id="agUntil" type="date">
+      <label class="f">البنات المسندة</label><div class="row" style="flex-wrap:wrap;gap:6px">${S.children.map(c => `<label class="chk"><input type="checkbox" class="agNewKid" value="${esc(c.id)}" checked> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
       <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).map(([k, t]) => `<button class="btn sm" data-act="agentAdd" data-t="${k}">➕ ${t.label}</button>`).join('')}</div></div></div>`;
 }
 function savePinFromForm(){
@@ -3076,7 +3084,8 @@ function renderParent(){
   const allowed = t => !guard || (!!TAB_PERM[t] && agentAllows(TAB_PERM[t]));
   const groups = PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(allowed)]).filter(([, keys]) => keys.length);
   const firstTab = PARENT_GROUPS.flatMap(g => g[1]).find(allowed);
-  if (guard && !firstTab) { view().innerHTML = `<div class="card center"><h3>لا توجد صفحات مسموحة لك</h3><p class="muted">اطلبي من مدير النظام منح صلاحيات لهذا الوكيل.</p><button class="btn ghost" data-act="home">🏠 الرئيسية</button></div>`; return; }
+  if (guard && UI.pchild && !visibleKids().some(c => c.id === UI.pchild)) UI.pchild = visibleKids()[0] ? visibleKids()[0].id : null;
+  if (guard && (!firstTab || !visibleKids().length)) { view().innerHTML = `<div class="card center"><h3>لا توجد صفحات مسموحة لك</h3><p class="muted">اطلبي من مدير النظام منح صلاحيات أو إسناد بنات لهذا الوكيل.</p><button class="btn ghost" data-act="home">🏠 الرئيسية</button></div>`; return; }
   const cur = PARENT_LABELS[UI.ptab] && allowed(UI.ptab) ? UI.ptab : (firstTab || 'reports');
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
@@ -3120,12 +3129,13 @@ const kpi = (ico, label, value, cls = 'c1', pct = null) => `<div class="kpi ${cl
 const kpis = items => `<div class="kpi-row">${items.join('')}</div>`;
 // ملخص عام لولي الأمر: مجموع الأطفال
 const overviewKpis = () => {
-  const stars = S.children.reduce((n, c) => n + (P(c.id).stars || 0), 0);
-  const today = S.children.reduce((n, c) => n + (timeStats(c.id).today || 0), 0);
-  const mastered = S.children.reduce((n, c) => { const rs = allResults(c.id); return n + Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length; }, 0);
+  const kidsV = visibleKids();
+  const stars = kidsV.reduce((n, c) => n + (P(c.id).stars || 0), 0);
+  const today = kidsV.reduce((n, c) => n + (timeStats(c.id).today || 0), 0);
+  const mastered = kidsV.reduce((n, c) => { const rs = allResults(c.id); return n + Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length; }, 0);
   return kpis([kpi('⭐', 'نجوم الجميع', fmt(stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), kpi('👧', 'عدد الأطفال', fmt(S.children.length), 'c1')]);
 };
-const childPicker = () => `<div class="child-pick">${S.children.map(c => `<button class="${UI.pchild === c.id ? 'on' : ''}" data-act="pchild" data-id="${esc(c.id)}">${esc(c.emoji)} ${esc(c.name)}</button>`).join('')}</div>`;
+const childPicker = () => `<div class="child-pick">${visibleKids().map(c => `<button class="${UI.pchild === c.id ? 'on' : ''}" data-act="pchild" data-id="${esc(c.id)}">${esc(c.emoji)} ${esc(c.name)}</button>`).join('')}</div>`;
 const chip = st => `<span class="stat-badge st-${st}">${STATUS[st]}</span>`;
 const kidChecks = (cls, sel) => S.children.map(c => `<label class="chk"><input type="checkbox" class="${cls}" value="${esc(c.id)}" ${sel && sel.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('');
 
@@ -3133,7 +3143,7 @@ const kidChecks = (cls, sel) => S.children.map(c => `<label class="chk"><input t
 function compareHTML(){
   return `<div class="card"><h3>👭 مقارنة سريعة بين البنات</h3><div class="tbl-wrap"><table>
   <tr><th>البنت</th><th>اليوم</th><th>هذا الأسبوع</th><th>هذا الشهر</th><th>المجموع</th><th>أيام التعلم</th><th>متوسط/يوم</th><th>أسئلة</th><th>استقلالية</th><th>⭐</th><th>🏆</th></tr>
-  ${S.children.map(c => { const t = timeStats(c.id), st = stat(allResults(c.id)); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${minLabel(t.today)}</td><td>${minLabel(t.week)}</td><td>${minLabel(t.month)}</td><td><b>${minLabel(t.total)}</b></td><td>${t.days}</td><td>${minLabel(t.avg)}</td><td>${st.n}</td><td>${st.ip}%</td><td>${P(c.id).stars}</td><td>${compWins(c.id)}</td></tr>`; }).join('')}
+  ${visibleKids().map(c => { const t = timeStats(c.id), st = stat(allResults(c.id)); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${minLabel(t.today)}</td><td>${minLabel(t.week)}</td><td>${minLabel(t.month)}</td><td><b>${minLabel(t.total)}</b></td><td>${t.days}</td><td>${minLabel(t.avg)}</td><td>${st.n}</td><td>${st.ip}%</td><td>${P(c.id).stars}</td><td>${compWins(c.id)}</td></tr>`; }).join('')}
   </table></div><p class="muted">الهدف متابعة كل بنت مع نفسها؛ المقارنة للتنظيم وليست للحكم.</p></div>`;
 }
 function timeHTML(cid){
@@ -3288,7 +3298,7 @@ const PARENT = {
   },
   kids(){
     const open = UI.kidPage ? S.children.find(c => c.id === UI.kidPage) : null;
-    if (!open) return `<div class="card"><h3>👧 أسماء البنات</h3><p class="muted">اختاري بنتاً لفتح ملفها وإعداداتها</p>${S.children.map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}</button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة بنت/طفل</button></div>`;
+    if (!open) return `<div class="card"><h3>👧 أسماء البنات</h3><p class="muted">اختاري بنتاً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small></button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة بنت/طفل</button></div>`;
     const sec = KID_SECS.some(([k]) => k === UI.kidSec) ? UI.kidSec : 'profile';
     return `<div class="row" style="margin-bottom:8px"><button class="btn ghost" data-act="closeKid">← قائمة البنات</button></div>
     <div class="card" style="border-top:6px solid ${esc(open.color)}"><h3>${esc(open.emoji)} ${esc(open.name)}</h3>
@@ -4054,7 +4064,9 @@ const ACT = {
     if (pin.length < 4) return toast('الرمز 4 أرقام على الأقل');
     const h = hashPin(pin);
     if (h === S.settings.pin || agents().some(a => a.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
-    agents().push({id:'ag' + Date.now().toString(36), name, pin:h, perms:AGENT_TEMPLATES[d.t].perms.slice(), until});
+    const kids = [...document.querySelectorAll('.agNewKid:checked')].map(x => x.value);
+    if (!kids.length) return toast('اختاري بنتاً واحدة على الأقل');
+    agents().push({id:'ag' + Date.now().toString(36), name, pin:h, perms:AGENT_TEMPLATES[d.t].perms.slice(), until, kids});
     save(); toast('تمت إضافة الوكيل ✅'); renderParent();
   },
   agentTpl: d => { const a = agents().find(x => x.id === d.id), t = AGENT_TEMPLATES[d.t]; if (!a || !t) return; a.perms = t.perms.slice(); save(); toast('تم تطبيق القالب ✅'); renderParent(); },
@@ -4235,11 +4247,11 @@ const ACT = {
     if (levelRaw(c) !== oldLevel) { const m = LEVEL_MATH[levelRaw(c) - 1]; c.mathMax = m; c.addMax = m; c.subMax = m; }
     save(); renderParent(); toast('تم الحفظ');
   },
-  addKid: () => { S.children.push(newChild(uid(), 'اسم جديد', '⭐', '#3aa0d8')); save(); renderParent(); },
+  addKid: () => { const id = uid(); S.children.push(newChild(id, 'اسم جديد', '⭐', '#3aa0d8')); const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id); save(); renderParent(); },
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
     exportBackup(); (CH(d.id).pages || []).forEach(p => idbDel('page_' + p.id).catch(() => {})); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
-    S.words.forEach(w => { w.kids = (w.kids || []).filter(k => k !== d.id); }); UI.pchild = S.children[0].id; save(); renderParent();
+    S.words.forEach(w => { w.kids = (w.kids || []).filter(k => k !== d.id); }); agents().forEach(a => { a.kids = a.kids.filter(k => k !== d.id); }); UI.pchild = S.children[0].id; save(); renderParent();
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
     const qp = $('#gqrep'), qn = $('#gqnight');
@@ -4310,6 +4322,7 @@ const ACT = {
 const CHANGE = {
   // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
+  agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
   agentUntil: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; a.until = t.value || ''; save(); renderParent(); },
   // اختيار المستوى يملأ حقول النطاق بقيم المستوى (نفس منطق الحفظ اليدوي والترقية)
   levelPick: t => { const cid = t.id.replace('klev_', ''), m = LEVEL_MATH[+t.value - 1]; if (!m) return; ['kx_', 'ka_', 'ks_'].forEach(pre => { const el = $('#' + pre + cid); if (el) el.value = m; }); },
