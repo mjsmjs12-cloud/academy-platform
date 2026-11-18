@@ -570,9 +570,10 @@ function scanMessages(){
   if (!READY) return;
   const items = [];
   (S.inbox || []).forEach(m => {
-    if (m.cid) items.push({key: 'n:' + m.id, m, kind: 'new'});
+    items.push({key: 'n:' + m.id, m, kind: 'new'}); // كل الرسائل: من الأطفال، وطلبات تجديد الوكلاء، وطلبات التفعيل
     (m.replies || []).forEach((r, i) => items.push({key: 'r:' + m.id + ':' + i, m, kind: 'reply'}));
   });
+  broadcasts().forEach(b => items.push({key: 'b:' + b.id, m: b, kind: 'bc'})); // التعميمات تصل إلى الأطفال
   if (MSG_SEEN === null) { MSG_SEEN = new Set(items.map(x => x.key)); return; } // أول تحميل: لا إشعار للقديم
   const fresh = items.filter(x => !MSG_SEEN.has(x.key));
   items.forEach(x => MSG_SEEN.add(x.key));
@@ -582,6 +583,8 @@ function scanMessages(){
     const n = fresh.filter(x => x.kind === 'new' && !x.m.read && msgVisible(x.m)).pop();
     if (n) showBanner('📩 رسالة جديدة من ' + (n.m.name || 'طفل'), () => openInboxMsg(n.m.id));
   } else if (UI.kid) {
+    const bc = fresh.filter(x => x.kind === 'bc').pop();
+    if (bc) showBanner(bc.m.kind === 'voice' ? '🎙️ تعميم صوتي جديد' : '📢 تعميم جديد', () => { go(() => renderChatPage(UI.kid, 'broadcast')); updateEnvelope(); });
     const r = fresh.filter(x => x.kind === 'reply' && x.m.cid === UI.kid).pop();
     if (r) showBanner('↩️ وصلك رد على رسالتك', () => { ACT.kmsg({id: UI.kid}); updateEnvelope(); });
   }
@@ -605,6 +608,14 @@ function showBanner(text, onClick){
 function openInboxMsg(id){
   UI.ptab = 'inbox'; UI.pMenuOpen = false; UI.focusMsg = id;
   go(renderParent);
+}
+// تنبيه عام عند فتح لوحة ولي الأمر: أطفال مجمّدون أو غائبون منذ 3 أيام فأكثر (من يراهم ولي الأمر فقط)
+function notifyParentAlerts(){
+  if (!UI.parentOk) return;
+  const bad = visibleKids().filter(c => isFrozenNow(c) || daysSince(c) >= INACTIVE_NOTICE_DAYS);
+  if (!bad.length) return;
+  const names = bad.map(c => kName(c) || 'طفل').join('، ');
+  showBanner('🔔 يحتاج متابعة: ' + names, () => { UI.ptab = 'dash'; UI.pMenuOpen = false; go(renderParent); });
 }
 // بعد رسم تبويب الرسائل: يمرّر إلى بطاقة الرسالة المطلوبة ويبرزها
 function focusMsgCard(){
@@ -2378,7 +2389,15 @@ function renderLogin(){
     <div class="row center" style="margin-top:12px"><button class="btn" data-act="adminLogin">${S.settings.pin ? '🔓 دخول المدير' : '➕ إنشاء الحساب'}</button>${S.settings.pin ? '<button class="btn ghost sm" data-act="recoverAdmin">نسيت الرمز؟</button>' : ''}</div>
     <p id="amsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
   </div>
-  <p class="muted center" style="font-size:13px">ولي الأمر يدخل من زر «لوحة ولي الأمر» داخل صفحة الطفل.</p>
+  <div class="card" style="max-width:420px;margin:12px auto">
+    <h3>👤 دخول ولي الأمر</h3>
+    <p class="muted" style="font-size:13px">اسم ولي الأمر ورمزه الخاص كما أعدّهما مدير النظام</p>
+    <label class="f">اسم ولي الأمر</label><input id="gname" autocomplete="off">
+    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="gcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="guardianAccountLogin">🔓 دخول ولي الأمر</button></div>
+    <p id="gmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
+  </div>
+  <p class="muted center" style="font-size:13px">ولي الأمر يدخل باسمه ورمزه من البطاقة أعلاه، وتجدين إعداداته وخدماته في صفحته.</p>
   <p class="muted center" style="font-size:13px">الإصدار ${APP_VERSION} • يعمل دون إنترنت</p>`;
 }
 // إنجازات: ترتيب الأطفال بالنجوم وعدد المهارات المتقنة (بدون تفاصيل أخرى)
@@ -2548,7 +2567,6 @@ function renderChild(id){
     <button class="big-tile main" style="background:linear-gradient(135deg,#f6c453,#f39a5b)" data-act="myStars" data-id="${esc(id)}"><span class="em">🏆</span>إنجازاتي</button>
     <button class="big-tile" data-act="kidSettings" data-id="${esc(id)}"><span class="em">⚙️</span>إعداداتي (المستوى)</button>
   </div>
-  <div class="row center" style="margin-top:12px"><button class="btn ghost sm" data-act="guardianLogin">🔒 لوحة ولي الأمر</button></div>
 `;
 }
 // الأسماء الحسنى (99) مع معنى مختصر، والأنبياء (25) مع سطر تعريفي. القصص والفيديوهات يضيفها ولي الأمر ويوافق عليها
@@ -3596,7 +3614,7 @@ function guardDenied(act, d){
   if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
-  if ((act === 'pchild' || act === 'openKid' || act === 'dashReport') && !a.kids.includes(d.id)) return 'هذا الطفل غير مسند لهذا الوكيل';
+  if ((act === 'pchild' || act === 'openKid' || act === 'dashReport' || act === 'kidCodeOpen') && !a.kids.includes(d.id)) return 'هذا الطفل غير مسند لهذا الوكيل';
   return null;
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
@@ -3656,7 +3674,7 @@ function restoreSession(){
       UI.parentOk = true; UI.parentRole = s.parentRole; UI.agentId = agent ? agent.id : null;
       UI.kid = null; NAV.length = 0; CUR = null; armParentTimer();
       if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0] ? S.children[0].id : null;
-      if (s.parentRole === 'admin') renderAdminHome(); else renderParent();
+      if (s.parentRole === 'admin') renderAdminHome(); else renderGuardianHome();
       return true;
     }
   }
@@ -3668,7 +3686,8 @@ function enterParent(role, agent){
   UI.parentOk = true; UI.parentRole = role; UI.agentId = agent ? agent.id : null;
   UI.kid = null; NAV.length = 0; CUR = null; UI.ptab = 'dash'; armParentTimer();
   if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
-  go(role === 'admin' ? renderAdminHome : renderParent);
+  go(role === 'admin' ? renderAdminHome : renderGuardianHome);
+  setTimeout(notifyParentAlerts, 500); // تنبيه عام: أطفال يحتاجون متابعة، عند فتح اللوحة
 }
 // قائمة صفحة ولي الأمر مجمّعة حسب نوع البيانات: الأطفال والمتابعة، ثم المحتوى، ثم الأدوات، ثم النظام
 const PARENT_GROUPS = [
@@ -3678,6 +3697,37 @@ const PARENT_GROUPS = [
   ['⚙️ النظام', ['settings']]
 ];
 const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'📥 الرسائل والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+// الشاشة الرئيسية لولي الأمر: تنبيهات أطفاله، وصفحاته المسموحة، وتغيير رموز أطفاله المسندين إليه
+function renderGuardianHome(){
+  applyTheme(); ensureActivity();
+  const a = currentAgent(), kids = visibleKids();
+  const ok = t => !!TAB_PERM[t] && agentAllows(TAB_PERM[t]);
+  const tiles = PARENT_GROUPS.flatMap(g => g[1]).filter(ok).map(t => {
+    const [em, ...rest] = PARENT_LABELS[t].split(' ');
+    return `<button class="big-tile" data-act="ptab" data-t="${t}"><span class="em">${em}</span>${esc(rest.join(' '))}</button>`;
+  }).join('');
+  const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span></span><button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
+  view().innerHTML = `
+  <div class="row between"><h2>🏠 لوحة ولي الأمر</h2><span class="muted">${esc(a ? a.name : '')}</span></div>
+  ${alertsHtml()}
+  <div class="tiles-grid">${tiles}<button class="big-tile" data-act="gSettings"><span class="em">⚙️</span>إعداداتي</button></div>
+  ${tiles ? '' : '<p class="muted center">لا توجد صفحات مسموحة لك، اطلبي من مدير النظام منح الصلاحيات.</p>'}
+  <div class="card"><h3>🔑 أطفالي وروابط دخولهم</h3>${kidRows || '<p class="muted">لا يوجد أطفال مسندون إليك.</p>'}</div>
+  <div class="row center" style="margin-top:8px"><button class="btn ghost sm" data-act="guardLogout">🚪 خروج</button></div>`;
+}
+// إعدادات ولي الأمر في صفحته: تغيير رمز دخوله فقط
+function renderGuardianSettings(){
+  applyTheme();
+  const a = currentAgent();
+  if (!a) return renderHome();
+  view().innerHTML = `
+  <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><h2>⚙️ إعداداتي</h2></div>
+  <div class="card"><h3>👤 حسابي</h3><p class="muted">الاسم: <b>${esc(a.name)}</b></p>
+    <label class="f">رمز دخولي الجديد (4 أرقام أو أكثر)</label><input id="gNewPin" type="password" inputmode="numeric" autocomplete="off">
+    <label class="f" style="margin-top:8px">أعيدي كتابة الرمز</label><input id="gNewPin2" type="password" inputmode="numeric" autocomplete="off">
+    <div class="row" style="margin-top:10px"><button class="btn ok" data-act="guardSavePin">💾 حفظ الرمز</button></div>
+  </div>`;
+}
 function renderParent(){
   applyTheme(); ensureActivity(); chatPrune().catch(() => {});
   const guard = UI.parentRole === 'guardian';
@@ -3930,7 +3980,9 @@ const PARENT = {
           <button class="btn sm ghost" data-act="dashReport" data-id="${esc(c.id)}">📊 التقرير الكامل</button>
         </div></div>`;
     }).join('');
-    return `${summary}${alertBox}${winnersHtml(8, kids)}<div class="dash-grid">${cards}</div>`;
+    // ولي الأمر يرى مستوى كل الأطفال (للقراءة فقط)، أما التفاصيل فلأطفاله المسندين إليه
+    const levelsCard = admin ? '' : `<div class="card"><h3>📈 مستويات الأطفال</h3>${S.children.map(c => `<div class="row between" style="padding:6px 0"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')}</span><span class="pill">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span></div>`).join('')}</div>`;
+    return `${summary}${alertBox}${levelsCard}${winnersHtml(8, kids)}<div class="dash-grid">${cards}</div>`;
   },
   reports(){
     return `${overviewKpis()}${compareHTML()}${childPicker()}${UI.pchild && CH(UI.pchild) ? skillOverrideCardHtml(UI.pchild) : ''}<div class="row" style="margin-bottom:10px">${UI.pchild ? `<button class="btn sm" data-act="measure" data-id="${esc(UI.pchild)}">📈 مركز القياس</button>` : ''}<button class="btn sm" data-act="printReport">🖨️ طباعة التقرير</button><button class="btn sm ghost" data-act="printCert" data-id="${esc(UI.pchild)}">🏅 طباعة شهادة</button></div>${reportHTML(UI.pchild)}`;
@@ -4387,7 +4439,43 @@ async function copyText(t){
 
 // ===== الأحداث =====
 const ACT = {
-  home: () => (UI.kid ? ACT.back() : (UI.parentOk && UI.parentRole === 'admin' ? go(renderAdminHome) : go(renderHome))),
+  home: () => (UI.kid ? ACT.back() : (UI.parentOk && UI.parentRole === 'admin' ? go(renderAdminHome) : UI.parentOk && UI.parentRole === 'guardian' ? go(renderGuardianHome) : go(renderHome))),
+  // دخول ولي الأمر بحسابه: الاسم والرمز الخاص كما أعدّهما مدير النظام
+  guardianAccountLogin: () => {
+    const msg = $('#gmsg'), name = normName(($('#gname') || {}).value), code = (($('#gcode') || {}).value || '').trim();
+    if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
+    if (!name || !code) { msg.textContent = 'أدخلي الاسم والرمز'; return; }
+    const h = hashPin(code), a = agents().find(x => x.pin === h && normName(x.name) === name);
+    if (!a) {
+      UI.loginFails = (UI.loginFails || 0) + 1;
+      if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
+      msg.textContent = 'الاسم أو الرمز غير صحيح'; return;
+    }
+    if (!isActive(a)) { msg.textContent = 'انتهت صلاحية هذا الحساب، راجعي مدير النظام'; return; }
+    UI.loginFails = 0; enterParent('guardian', a);
+  },
+  // ولي الأمر يغيّر رمز دخول أحد أطفاله المسندين إليه
+  kidCodeOpen: async d => {
+    const c = CH(d.id); if (!c) return;
+    const r = await modal('🔑 رمز ' + (kName(c) || 'الطفل'), '<input type="password" inputmode="numeric" placeholder="رمز جديد (4 أرقام أو أكثر)" style="text-align:center;font-size:22px">', [{label:'حفظ', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
+    if (!r.v) return;
+    const code = String(r.input || '').trim();
+    if (code.length < 4) return toast('الرمز 4 خانات على الأقل، لم يُغيَّر');
+    c.code = hashPin(code); c.codeSince = Date.now(); save(); toast('تم تغيير رمز الطفل ✅'); renderGuardianHome();
+  },
+  gSettings: () => go(renderGuardianSettings),
+  // ولي الأمر يغيّر رمز دخوله، ولا يتكرر رمز مستخدم
+  guardSavePin: () => {
+    const a = currentAgent(); if (!a) return;
+    const p1 = (($('#gNewPin') || {}).value || '').trim(), p2 = (($('#gNewPin2') || {}).value || '').trim();
+    if (p1.length < 4) return toast('الرمز 4 خانات على الأقل');
+    if (p1 !== p2) return toast('الرمزان غير متطابقين');
+    const h = hashPin(p1);
+    if (h === S.settings.pin || agents().some(x => x.id !== a.id && x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
+    a.pin = h; save(); toast('تم تغيير رمزك ✅'); renderGuardianHome();
+  },
+  // خروج ولي الأمر من حسابه
+  guardLogout: () => { UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفل الرئيسية
   back: () => {
     if (NAV.length) return history.back();
