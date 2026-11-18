@@ -525,6 +525,10 @@ async function bootApp(){
   const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
   if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setCloudV(S._v || 0); CLOUD_SNAP = cloudSnapshot(); }
   READY = true;
+  // نبض الحضور: كل دقيقة، وعند إخفاء الصفحة أو إظهارها، وعند إغلاقها
+  setInterval(presenceTick, 60 * 1000);
+  document.addEventListener('visibilitychange', presenceTick);
+  window.addEventListener('pagehide', () => { if (presenceKid) presenceLeave(presenceKid); });
   scanMessages(); // تسجيل الرسائل الموجودة مسبقاً دون إشعار
   chatPrune().catch(() => {}); // حذف الأصوات المنتهية (24 ساعة) والنصوص القديمة
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
@@ -2267,17 +2271,50 @@ function finishRun(){
 
 // ===== عرض الواجهات =====
 const view = () => $('#view');
-const UI = {ptab:'reports', pchild:null, editWord:null, wfilter:'all', parentOk:false, story:null, comp:null, pickProfile:null, kidStats:false};
+const UI = {ptab:'reports', pchild:null, editWord:null, wfilter:'all', parentOk:false, story:null, comp:null, pickProfile:null, kidStats:false, gAddKid:false};
 // إيقاف تلاوة القرآن عند مغادرة صفحتها
 function stopQuranAudio(){ if (QA) { try { QA.pause(); } catch (e) {} } if (UI.q) UI.q.playing = false; }
 // ===== التنقل والرجوع: زر الرجوع في الجهاز والزر الداخلي يعودان للشاشة السابقة =====
 const NAV = [];   // الشاشات السابقة (دوال العرض)
 let CUR = null;   // الشاشة الحالية
+// ===== حضور الطفل: "داخل" إن كانت صفحته ظاهرة ونشطة، وإلا "خارج" مع وقت آخر تواجد =====
+const PRESENCE_ON_MS = 5 * 60 * 1000;   // يُعدّ داخلاً إن وصل نبض خلال 5 دقائق
+const PRESENCE_SAVE_MS = 2 * 60 * 1000; // يُحفظ النبض كل دقيقتين، حتى لا تكثر المزامنة
+let presenceKid = null, presenceSavedAt = 0;
+// يسجّل نبض الطفل الحالي إن كانت الصفحة ظاهرة، ويسجّل خروجه عند تغيير الصفحة أو إخفائها
+function presenceTick(){
+  if (!READY) return;
+  const want = document.visibilityState === 'visible' && UI.kid && CH(UI.kid) ? UI.kid : null;
+  if (presenceKid && presenceKid !== want) presenceLeave(presenceKid);
+  if (!want) return;
+  const c = CH(want), now = Date.now();
+  c.inside = true; c.lastSeen = now; presenceKid = want;
+  if (now - presenceSavedAt >= PRESENCE_SAVE_MS) { presenceSavedAt = now; save(); }
+}
+function presenceLeave(id){
+  presenceKid = null;
+  const c = CH(id); if (!c) return;
+  c.inside = false; c.lastSeen = Date.now(); save();
+}
+const isInside = c => !!c.inside && Date.now() - (c.lastSeen || 0) < PRESENCE_ON_MS;
+const dayStart = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+// وقت آخر تواجد: اليوم أو أمس أو التاريخ، مع الساعة بالأرقام الغربية
+function lastSeenText(c){
+  if (!c.lastSeen) return 'لم يدخل بعد';
+  const d = new Date(c.lastSeen), days = Math.round((dayStart(new Date()) - dayStart(d)) / DAY_MS);
+  const day = days === 0 ? 'اليوم' : days === 1 ? 'أمس' : dayKeyOf(d);
+  return day + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+// شارة الحضور لولي الأمر ومدير النظام
+const presenceHtml = c => isInside(c)
+  ? '<span class="pill" style="background:#e6f7ec;color:#1e7a3c">🟢 داخل الآن</span>'
+  : `<span class="pill">⚪ خارج · آخر تواجد ${esc(lastSeenText(c))}</span>`;
 function go(fn){
   window.scrollTo(0, 0); stopQuranAudio();
   if (CUR) NAV.push(CUR);
   CUR = fn;
   history.pushState({ academy: true }, '');   // كل انتقال خطوة في سجل المتصفح
+  presenceTick();                              // تحديث حضور الطفل مع كل تغيير صفحة
   fn(); updateEnvelope();
 }
 // زر الظرف في أعلى الشاشة: للطفلة يفتح مراسلتها، ولولي الأمر يفتح صفحة الرسائل
@@ -2359,14 +2396,23 @@ async function emailApi(action, body){
   if (!r.ok) throw new Error(d.error || 'تعذّر الاتصال بالخادم');
   return d;
 }
+// الدخول بالبريد (طفل أو ولي أمر) والتسجيل بالبريد لولي أمر جديد، وكلاهما يحتاج الرابط المحفوظ
 function emailLoginHtml(){
-  if (S.settings.emailLogin !== 'on' || !S.cloud || !S.cloud.f) return '';
-  return `<div class="emailbox" style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12)">
+  if (!S.cloud || !S.cloud.f) return '';
+  const loginBox = S.settings.emailLogin === 'on' ? `<div class="emailbox" style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12)">
     <h4 style="margin:0 0 6px">📧 الدخول بالبريد</h4>
-    <label class="f">البريد المسجل في ملف الطفل</label><input id="lemail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
+    <label class="f">البريد المسجل (للطفل أو لولي الأمر)</label><input id="lemail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
     <div class="row center" style="margin-top:8px"><button class="btn sm" data-act="emailSend">📨 أرسلي الرمز</button></div>
     <div id="emailStep2" hidden><label class="f" style="margin-top:8px">الرمز المكوّن من 6 أرقام</label><input id="lotp" inputmode="numeric" autocomplete="one-time-code" maxlength="6"><div class="row center" style="margin-top:8px"><button class="btn ok sm" data-act="emailVerify">🔓 دخول بالرمز</button></div></div>
-    <p id="emsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>`;
+    <p id="emsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>` : '';
+  const regBox = S.settings.guardReg === 'on' ? `<div class="emailbox" style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12)">
+    <h4 style="margin:0 0 6px">📝 تسجيل ولي أمر جديد بالبريد</h4>
+    <label class="f">اسم ولي الأمر</label><input id="rname" autocomplete="off">
+    <label class="f" style="margin-top:6px">البريد</label><input id="remail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
+    <div class="row center" style="margin-top:8px"><button class="btn sm" data-act="regSend">📨 أرسلي الرمز</button></div>
+    <div id="regStep2" hidden><label class="f" style="margin-top:8px">الرمز المكوّن من 6 أرقام</label><input id="rotp" inputmode="numeric" autocomplete="one-time-code" maxlength="6"><div class="row center" style="margin-top:8px"><button class="btn ok sm" data-act="regVerify">✅ تسجيل والدخول</button></div></div>
+    <p id="rmsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>` : '';
+  return loginBox + regBox;
 }
 // شاشة الدخول: الاسم الأول + الرمز الخاص بالطفل فقط (بدون قائمة الأطفال)
 function renderLogin(){
@@ -2395,6 +2441,7 @@ function renderLogin(){
     <label class="f">اسم ولي الأمر</label><input id="gname" autocomplete="off">
     <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="gcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="guardianAccountLogin">🔓 دخول ولي الأمر</button></div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.12)"><label class="f">كود الدخول من مدير النظام</label><input id="acodeIn" autocomplete="off" placeholder="الكود" style="text-transform:uppercase"><div class="row center" style="margin-top:8px"><button class="btn sm" data-act="accessCodeLogin">🔑 دخول بالكود</button></div></div>
     <p id="gmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
   </div>
   <p class="muted center" style="font-size:13px">ولي الأمر يدخل باسمه ورمزه من البطاقة أعلاه، وتجدين إعداداته وخدماته في صفحته.</p>
@@ -3479,7 +3526,10 @@ function agents(){
   return S.settings.agents;
 }
 const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-const isActive = a => !a.until || a.until >= todayLocal();
+// الوكيل نشط إن لم يوقفه مدير النظام ولم تنتهِ مدته
+const isActive = a => !a.off && (!a.until || a.until >= todayLocal());
+// كود دخول عشوائي من 8 خانات بلا حروف ملتبسة (0/O و1/I)، يصدره مدير النظام لولي الأمر
+const genAccessCode = () => { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', b = crypto.getRandomValues(new Uint8Array(8)); return [...b].map(x => chars[x % chars.length]).join(''); };
 // ===== نشاط الطفل: تنبيه بعد 3 أيام بلا دخول، وتجميد الحساب بعد 3 أشهر (90 يوماً) =====
 const DAY_MS = 86400000, INACTIVE_NOTICE_DAYS = 3, FREEZE_DAYS = 90;
 const daysSince = c => Math.floor((Date.now() - (c.lastLogin || Date.now())) / DAY_MS);
@@ -3615,16 +3665,23 @@ function guardDenied(act, d){
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
   if ((act === 'pchild' || act === 'openKid' || act === 'dashReport' || act === 'kidCodeOpen') && !a.kids.includes(d.id)) return 'هذا الطفل غير مسند لهذا الوكيل';
+  // إضافة الطفل من ولي الأمر تحتاج صلاحية "الأطفال" التي يمنحها مدير النظام
+  if ((act === 'gAddKidOpen' || act === 'gAddKidSave') && !a.perms.includes('kids')) return 'إضافة الأطفال غير مسموحة لهذا الوكيل';
   return null;
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','bcRecStart','chatDel','editStart','editCancel','saveEdit','addParticipant','cloudCreate','cloudSync','cloudStop']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','agentCodeNew','agentCodeToggle','agentToggle','agentEmail','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','bcRecStart','chatDel','editStart','editCancel','saveEdit','addParticipant','cloudCreate','cloudSync','cloudStop']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 function agentsHtml(){
   const rows = agents().map(a => `<div class="card" style="margin-top:8px">
-    <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
+    <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${a.off ? 'موقوف' : isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><label class="f" style="margin:0">📧 البريد <input type="email" data-change="agentEmail" data-id="${esc(a.id)}" value="${esc(a.email || '')}" style="width:200px"></label>
+      <button class="btn sm ghost" data-act="agentToggle" data-id="${esc(a.id)}">${a.off ? '✅ تفعيل الحساب' : '⛔ إيقاف الحساب'}</button></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><span class="pill">🔑 ${a.codeHash ? (a.codeOn ? 'الكود مفعّل' : 'الكود ملغى') : 'لا يوجد كود'}</span>
+      <button class="btn sm" data-act="agentCodeNew" data-id="${esc(a.id)}">🔑 إصدار كود جديد</button>
+      ${a.codeHash ? `<button class="btn sm ghost" data-act="agentCodeToggle" data-id="${esc(a.id)}">${a.codeOn ? '⛔ إلغاء الكود' : '✅ تفعيل الكود'}</button>` : ''}</div>
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${AGENT_PERMS.map(([k, l]) => `<label class="chk"><input type="checkbox" data-change="agentPerm" data-id="${esc(a.id)}" data-p="${k}" ${a.perms.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><span class="muted">الأطفال:</span>${S.children.map(c => `<label class="chk"><input type="checkbox" data-change="agentKid" data-id="${esc(a.id)}" data-k="${esc(c.id)}" ${a.kids.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
     <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).map(([k, t]) => `<button class="btn sm ghost" data-act="agentTpl" data-id="${esc(a.id)}" data-t="${k}">${t.label}</button>`).join('')}
@@ -3706,13 +3763,18 @@ function renderGuardianHome(){
     const [em, ...rest] = PARENT_LABELS[t].split(' ');
     return `<button class="big-tile" data-act="ptab" data-t="${t}"><span class="em">${em}</span>${esc(rest.join(' '))}</button>`;
   }).join('');
-  const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span></span><button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
+  const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span><br>${presenceHtml(c)}</span><button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
   view().innerHTML = `
   <div class="row between"><h2>🏠 لوحة ولي الأمر</h2><span class="muted">${esc(a ? a.name : '')}</span></div>
   ${alertsHtml()}
   <div class="tiles-grid">${tiles}<button class="big-tile" data-act="gSettings"><span class="em">⚙️</span>إعداداتي</button></div>
   ${tiles ? '' : '<p class="muted center">لا توجد صفحات مسموحة لك، اطلبي من مدير النظام منح الصلاحيات.</p>'}
   <div class="card"><h3>🔑 أطفالي وروابط دخولهم</h3>${kidRows || '<p class="muted">لا يوجد أطفال مسندون إليك.</p>'}</div>
+  ${!a || !a.perms.includes('kids') ? '' : UI.gAddKid ? `<div class="card"><h3>➕ إضافة طفل</h3>
+    <label class="f">اسم الطفل</label><input id="gkName" autocomplete="off">
+    <label class="f" style="margin-top:8px">رمز دخوله (4 أرقام أو أكثر)</label><input id="gkCode" type="password" inputmode="numeric" autocomplete="off">
+    <div class="row" style="gap:6px;margin-top:10px"><button class="btn ok sm" data-act="gAddKidSave">💾 حفظ</button><button class="btn ghost sm" data-act="gAddKidCancel">إلغاء</button></div></div>`
+    : '<div class="row center" style="margin-top:8px"><button class="btn ghost" data-act="gAddKidOpen">➕ إضافة طفل</button></div>'}
   <div class="row center" style="margin-top:8px"><button class="btn ghost sm" data-act="guardLogout">🚪 خروج</button></div>`;
 }
 // إعدادات ولي الأمر في صفحته: تغيير رمز دخوله فقط
@@ -3971,7 +4033,7 @@ const PARENT = {
       const last = c.lastLogin ? new Date(c.lastLogin).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'}) : 'لا يوجد';
       const lvl = LEVEL_LABELS5[kidLevel(c) - 1] || '';
       return `<div class="dash-card" style="--kc:${esc(c.color)}">
-        <div class="dash-top"><span class="dash-av">${esc(c.emoji)}</span><div style="flex:1;min-width:0"><h3>${esc(c.name)}</h3><small class="muted">${esc(lvl)}</small></div>${frozen ? '<span class="pill">🔒 مجمّد</span>' : ''}</div>
+        <div class="dash-top"><span class="dash-av">${esc(c.emoji)}</span><div style="flex:1;min-width:0"><h3>${esc(c.name)}</h3><small class="muted">${esc(lvl)}</small><br>${presenceHtml(c)}</div>${frozen ? '<span class="pill">🔒 مجمّد</span>' : ''}</div>
         ${kpis([kpi('⭐', 'النجوم', fmt(p.stars || 0), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), kpi('🏆', 'الفوز بالمسابقات', fmt(compWins(c.id)), 'c1')])}
         <div class="dash-meta">📅 حضور الأسبوع: <b>${weekPresent(c)}/7</b> • 🕒 آخر دخول: <b>${esc(last)}</b>${admin ? ` • 🔢 ${fmt(c.loginCount || 0)}` : ''}</div>
         <div class="dash-meta muted">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</div>
@@ -4042,7 +4104,7 @@ const PARENT = {
   },
   kids(){
     const open = UI.kidPage ? S.children.find(c => c.id === UI.kidPage) : null;
-    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small></button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة طفل/طفل</button></div>`;
+    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small><small style="display:block">${presenceHtml(c)}</small></button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة طفل/طفل</button></div>`;
     const sec = KID_SECS.some(([k]) => k === UI.kidSec) ? UI.kidSec : 'profile';
     return `<div class="row" style="margin-bottom:8px"><button class="btn ghost" data-act="closeKid">← قائمة الأطفال</button></div>
     ${kidStatusHtml(open)}
@@ -4093,7 +4155,11 @@ const PARENT = {
         <option value="hidden" ${S.settings.emailLogin === 'hidden' ? 'selected' : ''}>مخفية: تُحفظ الإعدادات ولا تظهر على شاشة الدخول</option>
         <option value="off" ${(!S.settings.emailLogin || S.settings.emailLogin === 'off') ? 'selected' : ''}>ملغاة: تُعطَّل ويُمسح بريد الأطفال</option>
       </select>
-      <p class="muted">الرمز يُرسل إلى بريد الطفل المسجل في ملفها، ويصلح 10 دقائق، ولا يُقبل أكثر من 5 محاولات.</p></div>${securityHtml()}`)}
+      <p class="muted">الرمز يُرسل إلى البريد المسجل للطفل أو لولي الأمر، ويصلح 10 دقائق، ولا يُقبل أكثر من 5 محاولات.</p>
+      <label class="f" style="margin-top:10px">تسجيل ولي أمر جديد بالبريد</label><select id="gguardreg">
+        <option value="on" ${S.settings.guardReg === 'on' ? 'selected' : ''}>مفعّل: يسجّل ولي الأمر حسابه بالبريد ويدخل مباشرة</option>
+        <option value="off" ${S.settings.guardReg !== 'on' ? 'selected' : ''}>ملغى: لا يظهر خيار التسجيل</option>
+      </select></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
@@ -4464,6 +4530,21 @@ const ACT = {
     c.code = hashPin(code); c.codeSince = Date.now(); save(); toast('تم تغيير رمز الطفل ✅'); renderGuardianHome();
   },
   gSettings: () => go(renderGuardianSettings),
+  // ولي الأمر يضيف طفلاً جديداً ويُسنده إلى نفسه، برمز دخول خاص به
+  gAddKidOpen: () => { UI.gAddKid = true; renderGuardianHome(); },
+  gAddKidCancel: () => { UI.gAddKid = false; renderGuardianHome(); },
+  gAddKidSave: () => {
+    const a = currentAgent(); if (!a) return;
+    const name = (($('#gkName') || {}).value || '').trim(), code = (($('#gkCode') || {}).value || '').trim();
+    if (!name) return toast('اكتبي اسم الطفل');
+    if (S.children.some(c => normName(c.name) === normName(name))) return toast('يوجد طفل بهذا الاسم');
+    if (code.length < 4) return toast('الرمز 4 خانات على الأقل');
+    const h = hashPin(code);
+    if (h === S.settings.pin || agents().some(x => x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
+    const id = uid();
+    S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
+    a.kids.push(id); UI.gAddKid = false; save(); toast('تمت إضافة الطفل ✅'); renderGuardianHome();
+  },
   // ولي الأمر يغيّر رمز دخوله، ولا يتكرر رمز مستخدم
   guardSavePin: () => {
     const a = currentAgent(); if (!a) return;
@@ -4513,6 +4594,12 @@ const ACT = {
     const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase(), code = (($('#lotp') || {}).value || '').trim();
     try {
       const d = await emailApi('verify', { f: S.cloud.f, email, code });
+      // بريد ولي أمر: يدخل إلى لوحته مباشرة إن كان حسابه مفعّلاً
+      if (d.agentId) {
+        const a = agents().find(x => x.id === d.agentId);
+        if (!a || !isActive(a)) throw new Error('هذا الحساب موقوف أو منتهٍ، راجعي مدير النظام');
+        UI.loginFails = 0; return enterParent('guardian', a);
+      }
       const c = S.children.find(k => k.id === d.childId);
       if (!c) throw new Error('الملف غير موجود');
       if (isFrozenNow(c)) { msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر'; return; }
@@ -4520,6 +4607,54 @@ const ACT = {
       UI.parentOk = false; UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
     } catch (e) { msg.textContent = e.message; }
   },
+  // تسجيل ولي أمر جديد بالبريد: يُنشأ حسابه مفعّلاً، ويُسند إليه الأطفال من مدير النظام
+  regSend: async () => {
+    const msg = $('#rmsg'), name = (($('#rname') || {}).value || '').trim(), email = (($('#remail') || {}).value || '').trim().toLowerCase();
+    if (!S.cloud || !S.cloud.f) { msg.textContent = 'هذا التسجيل يحتاج الرابط المحفوظ'; return; }
+    if (!name) { msg.textContent = 'اكتبي اسم ولي الأمر'; return; }
+    if (agents().some(a => normName(a.name) === normName(name))) { msg.textContent = 'يوجد ولي أمر بهذا الاسم، راجعي مدير النظام'; return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'اكتبي بريداً صحيحاً'; return; }
+    msg.textContent = 'جارٍ الإرسال...';
+    try {
+      await emailApi('send', { f: S.cloud.f, email, purpose: 'register' });
+      $('#regStep2').hidden = false; msg.textContent = 'أُرسل الرمز إلى بريدك، صلاحيته 10 دقائق.';
+    } catch (e) { msg.textContent = e.message; }
+  },
+  regVerify: async () => {
+    const msg = $('#rmsg'), name = (($('#rname') || {}).value || '').trim(), email = (($('#remail') || {}).value || '').trim().toLowerCase(), code = (($('#rotp') || {}).value || '').trim();
+    try {
+      await emailApi('verify', { f: S.cloud.f, email, code, purpose: 'register' });
+      if (agents().some(a => normName(a.name) === normName(name))) throw new Error('يوجد ولي أمر بهذا الاسم');
+      const a = { id: 'ag' + Date.now().toString(36), name, email, perms: ['reports', 'kids'], until: '', kids: [], off: false };
+      agents().push(a); save(); UI.loginFails = 0; enterParent('guardian', a);
+    } catch (e) { msg.textContent = e.message; }
+  },
+  // دخول ولي الأمر بالكود الذي أصدره مدير النظام
+  accessCodeLogin: () => {
+    const msg = $('#gmsg'), code = (($('#acodeIn') || {}).value || '').trim().toUpperCase();
+    if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
+    if (!code) { msg.textContent = 'أدخلي الكود'; return; }
+    const h = hashPin(code), a = agents().find(x => x.codeHash === h);
+    if (!a) {
+      UI.loginFails = (UI.loginFails || 0) + 1;
+      if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
+      msg.textContent = 'الكود غير صحيح'; return;
+    }
+    if (!a.codeOn) { msg.textContent = 'هذا الكود ملغى، راجعي مدير النظام'; return; }
+    if (a.off) { msg.textContent = 'هذا الحساب موقوف، راجعي مدير النظام'; return; }
+    if (!isActive(a)) { msg.textContent = 'انتهت صلاحية هذا الحساب، راجعي مدير النظام'; return; }
+    UI.loginFails = 0; enterParent('guardian', a);
+  },
+  // إدارة الكود والحساب من مدير النظام: إصدار كود جديد، وتفعيله أو إلغاؤه، وإيقاف الحساب
+  agentCodeNew: async d => {
+    const a = agents().find(x => x.id === d.id); if (!a) return;
+    const code = genAccessCode();
+    a.codeHash = hashPin(code); a.codeOn = true; save();
+    await modal('🔑 كود الدخول الجديد', `<div dir="ltr" style="font-size:26px;letter-spacing:4px;text-align:center;font-weight:bold">${esc(code)}</div><p class="muted center">انسخيه الآن، لن يُعرض مرة أخرى. إصدار كود جديد يلغي القديم.</p>`, [{label:'تم', val:1}]);
+    renderParent();
+  },
+  agentCodeToggle: d => { const a = agents().find(x => x.id === d.id); if (!a || !a.codeHash) return; a.codeOn = !a.codeOn; save(); toast(a.codeOn ? 'تم تفعيل الكود ✅' : 'أُلغي الكود'); renderParent(); },
+  agentToggle: d => { const a = agents().find(x => x.id === d.id); if (!a) return; a.off = !a.off; save(); toast(a.off ? 'أُوقف الحساب' : 'تم تفعيل الحساب ✅'); renderParent(); },
   kidLogout: () => { UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   achievements: () => go(renderAchievements),
   openChild: d => go(() => renderChild(d.id)),
@@ -5231,6 +5366,7 @@ const ACT = {
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
     const qp = $('#gqrep'), qn = $('#gqnight');
+    if ($('#gguardreg')) S.settings.guardReg = $('#gguardreg').value;
     if ($('#gemail')) { S.settings.emailLogin = $('#gemail').value; if (S.settings.emailLogin === 'off') S.children.forEach(c => { c.email = ''; }); }
     if (qp) S.settings.quranRepeat = +qp.value; if (qn) S.settings.quranNight = qn.checked; S.settings.ytScript = (($('#gytscript') || {value:''}).value || '').trim(); S.settings.driveFolder = (($('#gdfolder') || {value:''}).value || '').trim() || 'أكاديمية'; S.settings.digits = $('#gdig').value; S.settings.rate = +$('#grate').value; save(); toast('تم حفظ الإعدادات');
     const gd = (($('#gdrive') || {value:''}).value || '').trim(); if (gd && gd !== DRIVE.clientId) driveConnect(gd); },
@@ -5324,6 +5460,14 @@ const CHANGE = {
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
   agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
   agentUntil: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; a.until = t.value || ''; save(); renderParent(); },
+  // بريد ولي الأمر للدخول بالرمز المرسل إليه؛ لا يتكرر بريد طفل أو وكيل آخر
+  agentEmail: t => {
+    const a = agents().find(x => x.id === t.dataset.id); if (!a) return;
+    const v = (t.value || '').trim().toLowerCase();
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { toast('البريد غير صحيح'); return renderParent(); }
+    if (v && (S.children.some(c => String(c.email || '').toLowerCase() === v) || agents().some(x => x.id !== a.id && String(x.email || '').toLowerCase() === v))) { toast('هذا البريد مستخدم'); return renderParent(); }
+    a.email = v; save(); toast('تم حفظ البريد ✅'); renderParent();
+  },
   // اختيار المستوى يملأ حقول النطاق بقيم المستوى (نفس منطق الحفظ اليدوي والترقية)
   levelPick: t => { const cid = t.id.replace('klev_', ''), m = LEVEL_MATH[+t.value - 1]; if (!m) return; ['kx_', 'ka_', 'ks_'].forEach(pre => { const el = $('#' + pre + cid); if (el) el.value = m; }); },
   darkMode: t => { S.settings.dark = t.checked; save(); applyTheme(); },
