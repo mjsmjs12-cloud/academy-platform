@@ -723,7 +723,10 @@ const mathExpr = (child, a, op, b, answerHtml, carry = 0, borrow = null) => {
   }
   return `<div class="expr" dir="ltr">${fmt(a)} ${op} ${fmt(b)} = ${answerHtml}</div>`;
 };
-const kCall = c => kName(c) || 'بطلتي';
+// الجنس: ولد أو بنت (الافتراضي بنت)، ويُستخدم لاختيار صيغة المخاطبة
+const isBoy = c => !!c && c.gender === 'm';
+const A = (c, m, f) => isBoy(c) ? m : f;
+const kCall = c => kName(c) || (isBoy(c) ? 'يا بطل' : 'بطلتي');
 const focusOf = c => { const f = (c.focus || []).filter(l => c.arLetters.includes(l)); return f.length ? f : c.arLetters; };
 const letterSound = t => t === 'ا' ? 'أَ' : t + FATHA;
 function fmt(n){ const s = String(n); return S.settings.digits === 'eastern' ? s.replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[d]) : s; }
@@ -1500,6 +1503,7 @@ function kidSecHtml(c, sec){
       <div class="row">${avatar(c, 70)}<label class="btn sm ghost">📷 ${c.photo ? 'تغيير الصورة' : 'إضافة صورة'}<input type="file" accept="image/*" data-change="kidPhoto" data-id="${id}" style="display:none"></label>${c.photo ? `<button class="btn sm ghost" data-act="delPhoto" data-id="${id}">🗑️ حذف الصورة</button>` : ''}<span class="muted">تظهر في المسابقات والشهادات، وتبقى على هذا الجهاز فقط.</span></div>
       <div class="grid2" style="margin-top:8px">
         <div><label class="f">الاسم</label><input id="kn_${id}" value="${esc(c.name)}"></div>
+        <div><label class="f">الجنس</label><select id="kgen_${id}"><option value="f" ${isBoy(c) ? '' : 'selected'}>بنت</option><option value="m" ${isBoy(c) ? 'selected' : ''}>ولد</option></select></div>
         <div><label class="f">الرمز</label><input id="ke_${id}" value="${esc(c.emoji)}"></div>
         <div><label class="f">العمر</label><input type="number" id="kage_${id}" min="3" max="18" value="${c.age || ''}"></div>
         <div><label class="f">لون البنت</label><input type="color" id="kc_${id}" value="${esc(c.color)}" style="height:46px"></div>
@@ -1948,9 +1952,9 @@ const normName = s => String(s || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ
 function renderLogin(){
   CUR_CID = null; applyTheme();
   view().innerHTML = `
-  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية ريما ويمامة الذكية</h1><div class="muted">اكتبي اسمك الأول والرمز الخاص بك للدخول</div></div>
+  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية ريما ويمامة الذكية</h1><div class="muted">أدخلي الاسم الأول والرمز الخاص بك</div></div>
   <div class="card" style="max-width:420px;margin:12px auto">
-    <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="مثال: ريما">
+    <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="اسمك الأول كما هو في ملفك">
     <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
@@ -1965,7 +1969,7 @@ function renderAchievements(){
   }).sort((a, b) => b.stars - a.stars);
   view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="home">→ رجوع</button><h2>🏆 الإنجازات</h2></div>
   <div class="card">${rows.map((r, i) => `<div class="row between" style="padding:10px;border-radius:14px;margin-top:6px;background:${esc(r.c.color)}22;${r.c.id === me ? 'border:2px solid ' + esc(r.c.color) : ''}">
-    <div class="row" style="align-items:center;gap:10px">${avatar(r.c, 44)}<div><b>${i + 1}. ${esc(r.c.name)}</b>${r.c.id === me ? ' <span class="pill">أنتِ</span>' : ''}</div></div>
+    <div class="row" style="align-items:center;gap:10px">${avatar(r.c, 44)}<div><b>${i + 1}. ${esc(r.c.name)}</b>${r.c.id === me ? ' <span class="pill">' + A(r.c, 'أنت', 'أنتِ') + '</span>' : ''}</div></div>
     <div class="row" style="gap:6px"><span class="pill">⭐ ${r.stars}</span><span class="pill">🏅 ${r.mastered} مهارة متقنة</span></div></div>`).join('')}</div>
   <div class="tiles-grid"><button class="big-tile main" data-act="compHome"><span class="em">🏆</span>مسابقة بين البنات</button></div>`;
 }
@@ -1984,7 +1988,7 @@ function renderChild(id){
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)}33,#fff)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
   <div class="muted">اليوم ${plan.day}: ${esc(plan.title)}${due ? ` • ${due} عناصر للمراجعة` : ''}</div></div>
   <div class="tiles-grid">
-    <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>ابدئي درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
+    <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
   </div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
   <div class="row center" style="justify-content:center;gap:8px;flex-wrap:wrap;margin:8px 0">
@@ -3488,13 +3492,13 @@ const ACT = {
   kidLogin: () => {
     const msg = $('#lmsg'), name = normName(($('#lname') || {}).value), code = (($('#lcode') || {}).value || '').trim();
     if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
-    if (!name || !code) { msg.textContent = 'اكتبي اسمك والرمز'; return; }
-    const c = S.children.find(k => normName((k.name || '').split(/\s+/)[0]) === name);
+    if (!name || !code) { msg.textContent = 'أدخلي الاسم والرمز'; return; }
+    const c = S.children.find(k => normName(k.name) === name || normName((k.name || '').split(/\s+/)[0]) === name);
     // الرمز يُحفظ مجزّأً (hashPin) كرمز ولي الأمر، ولا يُخزَّن كما هو
     if (!c || !c.code || c.code !== hashPin(code)) {
       UI.loginFails = (UI.loginFails || 0) + 1;
       if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
-      msg.textContent = 'الاسم أو الرمز غير صحيح';
+      msg.textContent = 'الاسم أو الرمز غير صحيح، تأكدي من كتابة الاسم كما هو في الملف';
       return;
     }
     UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
@@ -3991,6 +3995,7 @@ const ACT = {
     const num = (s, lo, hi, def) => { if (!has(s)) return def; const n = parseInt(v(s), 10); return isNaN(n) ? def : Math.max(lo, Math.min(hi, n)); };
     // كل قسم يحفظ حقوله فقط؛ الحقل الغائب (قسم آخر) لا يغيّر شيئاً
     if (has('kn')) c.name = v('kn').trim() || c.name;
+    if (has('kgen')) c.gender = v('kgen') === 'm' ? 'm' : 'f';
     if (has('ke')) c.emoji = v('ke').trim() || c.emoji;
     if (has('km')) c.minutes = +v('km');
     if (has('kl')) c.enCount = +v('kl');
