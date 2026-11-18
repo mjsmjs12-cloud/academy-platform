@@ -1,8 +1,8 @@
-// Service Worker لأكاديمية ريما ويمامة – الإصدار 2.9
+// Service Worker لأكاديمية ريما ويمامة – الإصدار 2.10
 // الصفحة الرئيسية: الشبكة أولاً (لتصل التحديثات فوراً)، والذاكرة المؤقتة عند انقطاع الاتصال
 // باقي الملفات: الذاكرة المؤقتة أولاً (أسرع، وتتغير بتغيير اسم الإصدار)
-const CACHE = 'academy-v2.9';
-const PAGE = './academy_v2.9.html';
+const CACHE = 'academy-v2.10';
+const PAGE = './academy_v2.10.html';
 const SHELL = [PAGE, './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

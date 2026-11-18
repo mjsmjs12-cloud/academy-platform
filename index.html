@@ -86,6 +86,9 @@ h1,h2,h3,h4{margin:.35em 0}
 .num{font-size:40px;font-family:Arial,sans-serif}
 .emoji-xl{font-size:64px;line-height:1.1}
 .emoji-opt{font-size:50px}
+.word-pic{width:200px;height:200px;object-fit:contain;border-radius:18px;background:#fff;display:block;margin:0 auto}
+.word-pic-opt{width:84px;height:84px;object-fit:contain;border-radius:12px;background:#fff}
+.word-credit{font-size:11px;color:#777;text-align:center}
 .egrid{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;font-size:30px;max-width:360px;margin:0 auto}
 .egrid.sm{font-size:18px;max-width:120px}
 .egrid .x{opacity:.35;text-decoration:line-through}
@@ -251,7 +254,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const DAY = 86400000;
 const todayStr = (d = new Date()) => { const z = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); };
 const STORE_KEY = 'rimaYamamaAcademy_v1';
-const APP_VERSION = '2.9'; // رقم الإصدار (لا يغيّر مفتاح الحفظ حتى تبقى البيانات)
+const APP_VERSION = '2.10'; // رقم الإصدار (لا يغيّر مفتاح الحفظ حتى تبقى البيانات)
 
 // ===== بيانات الحروف العربية =====
 const FATHA = 'َ', DAMMA = 'ُ', KASRA = 'ِ', SUKUN = 'ْ';
@@ -875,10 +878,51 @@ function numOptions(n, lo, hi, k = 4){
   let g = 0; while (set.size < k && g++ < 60) set.add(R(lo, hi));
   return shuffle([...set]).map(x => ({val:String(x), html:`<span class="num">${fmt(x)}</span>`}));
 }
+// ----- صور الكلمات: بحث في ويكيميديا كومنز (تراخيص مفتوحة) أو صورة من جهاز ولي الأمر -----
+// لا تُستخدم أي صورة مقترحة إلا بعد أن يعتمدها ولي الأمر
+const IMG = {};                                  // معرّف الكلمة -> رابط محلي للصورة المحفوظة في IndexedDB
+const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+const OPEN_LICENSE = /cc|public domain|pd-/i;    // تراخيص مفتوحة فقط
+async function loadWordImages(){
+  try { const items = await idbEntries(['wimg_']); for (const [k, v] of Object.entries(items)) if (v instanceof Blob) IMG[k.slice(5)] = URL.createObjectURL(v); } catch (e) {}
+}
+// بحث في كومنز: يعيد الصور ذات الترخيص المفتوح فقط مع اسم صاحبها وترخيصها
+async function commonsSearch(q){
+  const u = `${COMMONS_API}?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=320&format=json&origin=*`;
+  const j = await (await fetch(u)).json();
+  return Object.values((j.query && j.query.pages) || {}).map(p => {
+    const ii = (p.imageinfo || [])[0]; if (!ii) return null;
+    const m = ii.extmetadata || {}, val = k => (m[k] && m[k].value) || '';
+    return {title: p.title.replace(/^File:/, ''), thumb: ii.thumburl, url: ii.descriptionurl, license: val('LicenseShortName'), artist: val('Artist').replace(/<[^>]+>/g, '').trim()};
+  }).filter(r => r && r.thumb && OPEN_LICENSE.test(r.license));
+}
+// صورة الكلمة الكبيرة في السؤال: المعتمدة إن وُجدت، وإلا الرمز التعبيري
+function picBig(w){
+  const src = w && w.img && IMG[w.id];
+  if (src) return `<img class="word-pic" src="${src}" alt="">${w.imgCredit && w.imgCredit.url ? `<div class="word-credit">${esc(w.imgCredit.artist || '')} · ${esc(w.imgCredit.license || '')}</div>` : ''}`;
+  return w && w.emoji ? `<div class="emoji-xl">${esc(w.emoji)}</div>` : '';
+}
+// خيار في السؤال: يظهر بصورة الكلمة إن كانت لها صورة معتمدة
+function optPic(e){
+  const w = S.words.find(x => x.emoji === e && x.img && IMG[x.id]);
+  return w ? `<img class="word-pic-opt" src="${IMG[w.id]}" alt="">` : `<span class="emoji-opt">${e}</span>`;
+}
+// قسم الصورة في نافذة تعديل الكلمة
+function wordImgHtml(e){
+  const cr = e.imgCredit || {};
+  const cur = e.img && IMG[e.id]
+    ? `<div class="row" style="align-items:center"><img class="word-pic" style="width:140px;height:140px" src="${IMG[e.id]}" alt=""><div class="muted" style="font-size:13px">المصدر: ${esc(cr.artist || cr.title || '—')}<br>${esc(cr.license || '')}</div><button class="btn sm danger" data-act="imgRemove" data-id="${esc(e.id)}">🗑️ إزالة الصورة</button></div>`
+    : '<p class="muted">لا توجد صورة لهذه الكلمة بعد</p>';
+  return `<div class="card"><h3>🖼️ صورة الكلمة</h3>${cur}
+    <label class="f" style="margin-top:8px">ابحثي بالإنجليزية للنتائج الأفضل، مثل: lion</label>
+    <div class="row"><input id="fimgq" value="${esc(e.w)}" style="flex:1"><button class="btn sm" data-act="imgSearch" data-id="${esc(e.id)}">🔍 بحث في ويكيميديا كومنز</button><label class="btn sm ghost">📁 من جهازي<input type="file" accept="image/*" data-change="wordImgFile" data-id="${esc(e.id)}" style="display:none"></label></div>
+    <div id="imgRes" class="row" style="margin-top:8px"></div>
+    <p class="muted" style="font-size:12px">الصور المقترحة لا تُستخدم إلا بعد اعتمادك. الصور المعتمدة تحفظ اسم صاحبها وترخيصها.</p></div>`;
+}
 function emojiOptions(correct, ctx, n = 4){
   const src = ctx.comp ? STARTER_OBJ : S.words;
   const pool = [...new Set([...src.map(w => w.emoji), ...Object.values(AR_KEY).map(v => v[1])].filter(e => e && e !== correct))];
-  return shuffle([correct, ...shuffle(pool).slice(0, n - 1)]).map(e => ({val:e, html:`<span class="emoji-opt">${e}</span>`}));
+  return shuffle([correct, ...shuffle(pool).slice(0, n - 1)]).map(e => ({val:e, html:optPic(e)}));
 }
 const egrid = (em, n, crossed = 0, cls = '') => `<div class="egrid ${cls}">${Array.from({length:n}, (_, i) => `<span class="${i >= n - crossed ? 'x' : ''}">${em}</span>`).join('')}</div>`;
 const ITEMS_EM = ['🍎','⭐','🎈','🐟','🌸','🍓','🚗','🐤','🍪','⚽'];
@@ -986,7 +1030,7 @@ const GEN = {
     let pairs;
     if (W.length >= 3 && rnd() < 0.5) {
       const ws = shuffle(W).filter((w, i, a) => a.findIndex(x => x.emoji === w.emoji) === i).slice(0, 3);
-      pairs = ws.map(w => ({a:`<span class="ar-word">${hlWord(w.w, ctx.hlL(w))}</span>`, b:`<span class="emoji-opt">${w.emoji}</span>`, id:w.id, say:w.w}));
+      pairs = ws.map(w => ({a:`<span class="ar-word">${hlWord(w.w, ctx.hlL(w))}</span>`, b:optPic(w.emoji), id:w.id, say:w.w}));
     } else {
       const src = ctx.F.length >= 3 ? ctx.F : ctx.L;
       if (src.length < 2) return null;
@@ -1065,7 +1109,7 @@ const GEN = {
       say:st.t.map(x => [x,'ar']), tiles:shuffle(st.e.map((e, j) => ({val:String(j), html:`<span class="emoji-opt" style="font-size:40px">${e}</span>`}))), answer:['0','1','2']};
   },
   ar_comprehension(ctx){
-    const st = makeStory(ctx.comp ? [] : S.children, ctx.comp ? null : (rnd() < 0.5 && !ctx.child.hideName ? ctx.child.name : null));
+    const st = makeStory(ctx.comp ? [] : [ctx.child], ctx.comp ? null : (rnd() < 0.5 && !ctx.child.hideName ? ctx.child.name : null));
     const q = pick(storyQuestions(st));
     q.say = [...st.lines.map(l => [l.t, 'ar']), [q.qText, 'ar']];
     q.prompt = 'اسمعي القصة ثم أجيبي: ' + strip(q.qText);
@@ -1078,7 +1122,7 @@ const GEN = {
     const letters = plainLetters(w.w), tiles = letters.map(l => ({val:l, html:`<span class="ar-letter">${l}</span>`}));
     if (letters.length <= 4) { const d = letterDistractors(letters[0], ctx.L, 1)[0]; if (d) tiles.push({val:d, html:`<span class="ar-letter">${d}</span>`}); }
     return {key:'W:' + w.id, type:'order', dir:'rtl', preview:true, prompt:'اسمعي الكلمة ورتّبي حروفها', say:[[w.w,'ar']],
-      visual:w.emoji ? `<div class="emoji-xl">${w.emoji}</div>` : '', tiles:shuffle(tiles), answer:letters};
+      visual:picBig(w), tiles:shuffle(tiles), answer:letters};
   },
   // تهجئة: تُنطق حروف الكلمة واحداً واحداً، ثم تُرتَّب الحروف
   ar_spelling(ctx, t){
@@ -1092,7 +1136,7 @@ const GEN = {
     const letters = plainLetters(w.w), parts = letters.map(l => letterSound(l));
     const spell = parts.join(' ... ');
     return {key:'W:' + w.id, type:'order', dir:'rtl', preview:true, prompt:'اسمعي التهجئة ثم رتّبي الحروف', say:[[spell,'ar'],[w.w,'ar']], audioIsHint:true, hintSay:[[spell,'ar']],
-      visual:`${w.emoji ? `<div class="emoji-xl">${w.emoji}</div>` : ''}<div class="ar-big">${esc(w.w)}</div><div class="muted" style="margin-top:8px;font-size:20px">${parts.join(' - ')}</div>`,
+      visual:`${picBig(w)}<div class="ar-big">${esc(w.w)}</div><div class="muted" style="margin-top:8px;font-size:20px">${parts.join(' - ')}</div>`,
       tiles:shuffle(letters.map(l => ({val:l, html:`<span class="ar-letter">${l}</span>`}))), answer:letters};
   },
   ar_writing(ctx, t){
@@ -1335,11 +1379,82 @@ const opCfg = (c, op) => { const k = Object.assign({}, OP_DEFAULT, (c.ops && c.o
 const opEnabled = (c, op) => { const k = opCfg(c, op), lv = levelRaw(c); return op === 'mul' ? k.mode === 'on' && lv >= OP_MANUAL_LEVEL.mul : k.mode === 'on' || (k.mode === 'auto' && lv >= OP_AUTO_LEVEL[op]); };
 const skillEnabled = (c, s) => s === 'm_mul' ? opEnabled(c, 'mul') : s === 'm_div' ? opEnabled(c, 'div') : true;
 // أقسام ملف البنت: كل قسم زر، ويُحفظ القسم المفتوح فقط
-const KID_SECS = [['profile', '👤 البيانات والجلسة'], ['letters', '🔤 الحروف'], ['math', '➕➖ الجمع والطرح'], ['ops', '✖️➗ الضرب والقسمة'], ['voice', '🔊 الصوت والقرآن']];
+const KID_SECS = [['profile', '👤 البيانات والجلسة'], ['letters', '🔤 الحروف'], ['math', '➕➖ الجمع والطرح'], ['ops', '✖️➗ الضرب والقسمة'], ['voice', '🔊 الصوت والقرآن'], ['pages', '📄 الصفحات']];
 const OP_NAMES = {mul: '✖️ الضرب', div: '➗ القسمة'};
 const OP_MODES = [['auto', 'تلقائي: حسب المستوى'], ['on', 'مفعّل يدوياً'], ['off', 'متوقف']];
 const OP_FACTOR_LIST = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+// ----- الصفحات المضافة لكل بنت: ملف HTML أو Markdown يُحفظ على الجهاز ويُعرض داخل إطار معزول -----
+// قراءة الترويسة (frontmatter) بين سطري ---: العنوان والوصف فقط
+function parseFrontmatter(text){
+  const meta = {}, m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!m) return {meta, body: text};
+  m[1].split(/\r?\n/).forEach(line => { const i = line.indexOf(':'); if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim(); });
+  return {meta, body: text.slice(m[0].length)};
+}
+// تحويل Markdown بسيط: عناوين واقتباس وقوائم وكود؛ أسطر HTML والـ CSS والـ JS تبقى كما هي
+function mdInline(s){ return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>'); }
+function mdToHtml(text){
+  const out = []; let inList = false, inCode = false, inRaw = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim();
+    if (inCode) { if (t.startsWith('```')) { out.push('</code></pre>'); inCode = false; } else out.push(esc(line)); continue; }
+    if (t.startsWith('```')) { closeList(); out.push('<pre><code>'); inCode = true; continue; }
+    if (inRaw) { out.push(line); if (/<\/(style|script)>/i.test(line)) inRaw = false; continue; }
+    if (/<(style|script)[\s>]/i.test(line)) { closeList(); out.push(line); if (!/<\/(style|script)>/i.test(line)) inRaw = true; continue; }
+    const h = t.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const n = h[1].length; out.push(`<h${n}>${mdInline(esc(h[2]))}</h${n}>`); continue; }
+    if (t.startsWith('> ')) { closeList(); out.push(`<blockquote>${mdInline(esc(t.slice(2)))}</blockquote>`); continue; }
+    if (/^[-*]\s+/.test(t)) { if (!inList) { out.push('<ul>'); inList = true; } out.push(`<li>${mdInline(esc(t.replace(/^[-*]\s+/, '')))}</li>`); continue; }
+    closeList();
+    if (!t) continue;
+    if (t.startsWith('<')) { out.push(line); continue; } // HTML يمر كما هو
+    out.push(`<p>${mdInline(esc(t))}</p>`);
+  }
+  closeList(); if (inCode) out.push('</code></pre>');
+  return out.join('\n');
+}
+// يبني مستند الصفحة الكامل: ملف HTML يُستخدم كما هو، وMarkdown يُحوَّل
+function buildPageDoc(name, text){
+  const base = name.replace(/\.[^.]+$/, '');
+  if (/\.html?$/i.test(name)) {
+    const t = (text.match(/<title>([\s\S]*?)<\/title>/i) || [])[1];
+    return {title: (t || base).trim(), desc: '', doc: text};
+  }
+  const {meta, body} = parseFrontmatter(text);
+  return {
+    title: meta.title || base,
+    desc: meta.description || '',
+    doc: `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;font-family:system-ui,Tahoma,Arial,sans-serif;line-height:1.7}</style></head><body>${mdToHtml(body)}</body></html>`
+  };
+}
+// فتح الصفحة في شاشة كاملة: sandbox بدون allow-same-origin، فلا يصل الكود إلى بيانات التطبيق
+function showPage(title, doc){
+  const old = document.getElementById('pageOv'); if (old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'pageOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column';
+  ov.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid #eee"><button class="btn sm ghost" id="pageClose">← رجوع</button><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(title)}</b></div>`;
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', 'allow-scripts');
+  f.style.cssText = 'flex:1;border:0;width:100%;height:100%';
+  f.srcdoc = doc;
+  ov.appendChild(f); document.body.appendChild(ov);
+  ov.querySelector('#pageClose').onclick = () => ov.remove();
+}
+// قسم الصفحات في ملف البنت: إضافة من الجهاز، وقائمة بالصفحات مع فتح وحذف
+function pagesSecHtml(c){
+  const id = esc(c.id), list = c.pages || [];
+  const rows = list.length ? list.map(p => `<div class="row" style="justify-content:space-between;border:1px solid #eee;border-radius:12px;padding:8px;margin-top:8px">
+      <div><b>${esc(p.title)}</b><div class="muted" style="font-size:.85em">${esc(p.desc || p.name)} · ${fmt(Math.max(1, Math.round((p.size || 0) / 1024)))} كيلوبايت</div></div>
+      <div class="row"><button class="btn sm ok" data-act="openPage" data-pid="${esc(p.id)}" data-cid="${id}">▶️ فتح</button><button class="btn sm danger" data-act="delPage" data-pid="${esc(p.id)}" data-cid="${id}">🗑️ حذف</button></div></div>`).join('')
+    : '<p class="muted">لا توجد صفحات مضافة بعد</p>';
+  return `<div class="card"><h3>📄 الصفحات المضافة</h3>
+      <p class="muted">اختاري ملف HTML أو Markdown (.md) من جهازك، فتصبح صفحة جديدة لهذه البنت وتعمل بدون إنترنت. لا يوجد حد لحجم الملف.</p>
+      <label class="btn ok" style="margin-top:8px">➕ إضافة صفحة من ملف<input type="file" accept=".md,.markdown,.txt,.html,.htm" data-change="kidPage" data-id="${id}" style="display:none"></label>
+      ${rows}</div>`;
+}
 function kidSecHtml(c, sec){
+  if (sec === 'pages') return pagesSecHtml(c);
   const id = esc(c.id), save = `<div class="row" style="margin-top:12px"><button class="btn ok" data-act="saveKid" data-id="${id}">💾 حفظ هذا القسم</button></div>`;
   const quick = [9, 10, 19, 20, 50, 99, 100].map(v => `<button class="btn sm ghost" data-act="quickRange" data-id="${id}" data-v="${v}">±${v}</button>`).join('');
   if (sec === 'letters') return `<div class="card"><h3>🔤 الحروف</h3>
@@ -1388,13 +1503,14 @@ function kidSecHtml(c, sec){
         <div><label class="f">الرمز</label><input id="ke_${id}" value="${esc(c.emoji)}"></div>
         <div><label class="f">العمر</label><input type="number" id="kage_${id}" min="3" max="18" value="${c.age || ''}"></div>
         <div><label class="f">لون البنت</label><input type="color" id="kc_${id}" value="${esc(c.color)}" style="height:46px"></div>
+        <div><label class="f">🔑 رمز دخول الطفلة (4 أرقام أو أكثر)</label><input type="password" inputmode="numeric" id="kcode_${id}" placeholder="${c.code ? 'تم تعيين رمز، اكتبي رمزاً جديداً للتغيير' : 'اكتبي الرمز'}"></div>
         <div><label class="f">المستوى</label><select id="klev_${id}" data-change="levelPick">${LEVEL_LABELS5.map((l, i) => `<option value="${i + 1}" ${levelRaw(c) === i + 1 ? 'selected' : ''}>${l} (حتى ${fmt(LEVEL_MATH[i])})</option>`).join('')}</select></div>
         <div><label class="f">مدة الجلسة (دقيقة)</label><select id="km_${id}">${[0, 10, 15, 20, 25, 30, 40, 45].map(v => `<option value="${v}" ${c.minutes === v ? 'selected' : ''}>${v ? v + ' دقيقة' : 'مفتوح (بدون وقت)'}</option>`).join('')}</select></div>
       </div>
       <div style="margin-top:8px">
         <label class="chk"><input type="checkbox" id="kstrict_${id}" ${c.strictOrder ? 'checked' : ''}> 🔒 منع التجاوز حتى تُتقن المهارة السابقة</label>
         <label class="chk"><input type="checkbox" id="khn_${id}" ${c.hideName ? 'checked' : ''}> 🙈 إخفاء الاسم من شاشات الطفلة</label>
-        <label class="chk"><input type="checkbox" id="khp_${id}" ${c.hiddenProfile ? '' : 'checked'}> 👁️ إظهار ملف الطفل في الشاشة الرئيسية</label>
+        
       </div>
       <div class="row" style="margin-top:12px">${S.children.length > 1 ? `<button class="btn sm danger" data-act="delKid" data-id="${id}">حذف الملف</button>` : ''}</div>${save}</div>`;
 }
@@ -1681,7 +1797,7 @@ function shopHtml(cid){
   <div class="chips">${SHOP.map(it => owned.includes(it.id) ? `<span class="chip st-mastered">${it.em} مملوك ✓</span>` : `<button class="btn sm ${bal >= it.cost ? 'ok' : 'ghost'}" data-act="buySticker" data-id="${esc(cid)}" data-item="${it.id}" ${bal >= it.cost ? '' : 'disabled'}>${it.em} ${it.cost} ⭐</button>`).join('')}</div></div>`;
 }
 // ----- الاقتراحات الإضافية: النسخ والتسجيل والاستراحة والاستيراد وتبديل السؤال -----
-const MEDIA_PREFIXES = ['rec_', 'adhkar_audio_', 'pdf_']; // الملفات التي تُحفظ في IndexedDB وتدخل النسخة
+const MEDIA_PREFIXES = ['rec_', 'adhkar_audio_', 'pdf_', 'page_', 'wimg_']; // الملفات التي تُحفظ في IndexedDB وتدخل النسخة
 function idbEntries(prefixes){
   return idbOpen().then(db => new Promise((res, rej) => {
     const kr = db.transaction('store').objectStore('store').getAllKeys();
@@ -1822,15 +1938,36 @@ function go(fn){ window.scrollTo(0, 0); stopQuranAudio(); fn(); }
 function renderHome(){
   stopQuranAudio();
   UI.parentOk = false; applyTheme();
-  view().innerHTML = `${backupReminderHtml()}
-  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية ريما ويمامة الذكية</h1><div class="muted">قراءة عربية • خط وإملاء • English • رياضيات • قصص • ألعاب</div></div>
-  <div class="kids">${S.children.filter(c => !c.hiddenProfile).map(c => { const ts = timeStats(c.id); return `<button class="kid" style="background:${esc(c.color)}" data-act="openChild" data-id="${esc(c.id)}">
-    <span class="em">${avatar(c, 70)}</span>${esc(c.name)}<small>⭐ ${P(c.id).stars} • ⏱️ اليوم ${ts.today} د</small></button>`; }).join('')}</div>
-  <div class="tiles-grid" style="margin-top:12px">
-    <button class="big-tile main" data-act="compHome"><span class="em">🏆</span>مسابقة بين البنات</button>
+  // الطفلة مسجّلة الدخول: تظهر شاشتها فقط، ولا تظهر بقية الأطفال إلا في الإنجازات
+  if (UI.kid && CH(UI.kid)) return renderChild(UI.kid);
+  return renderLogin();
+}
+// الاسم للمقارنة: بلا تشكيل، وبتوحيد الألف والياء والتاء المربوطة
+const normName = s => String(s || '').replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').trim().toLowerCase();
+// شاشة الدخول: الاسم الأول + الرمز الخاص بالطفلة فقط (بدون قائمة الأطفال)
+function renderLogin(){
+  CUR_CID = null; applyTheme();
+  view().innerHTML = `
+  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية ريما ويمامة الذكية</h1><div class="muted">اكتبي اسمك الأول والرمز الخاص بك للدخول</div></div>
+  <div class="card" style="max-width:420px;margin:12px auto">
+    <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="مثال: ريما">
+    <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
+    <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
   </div>
-  <div class="card" style="margin-top:12px;text-align:center"><button class="btn ghost" data-act="openParent">⚙️ صفحة ولي الأمر</button>
-    <p class="muted">يعمل دون إنترنت، وتُحفظ البيانات على هذا الجهاز فقط. صدّري نسخة احتياطية من صفحة ولي الأمر.</p><p class="muted" style="font-size:13px">الإصدار ${APP_VERSION}</p><p class="muted center">الإصدار ${APP_VERSION} • عدد النسخ الاحتياطية: ${S.settings.backupNo || 0}</p></div>`;
+  <div class="card" style="margin-top:12px;text-align:center"><button class="btn ghost" data-act="openParent">⚙️ صفحة ولي الأمر</button><p class="muted" style="font-size:13px">الإصدار ${APP_VERSION} • يعمل دون إنترنت</p></div>`;
+}
+// إنجازات: ترتيب الأطفال بالنجوم وعدد المهارات المتقنة (بدون تفاصيل أخرى)
+function renderAchievements(){
+  const me = UI.kid, rows = S.children.map(c => {
+    const rs = allResults(c.id), mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
+    return {c, stars: P(c.id).stars || 0, mastered};
+  }).sort((a, b) => b.stars - a.stars);
+  view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="home">→ رجوع</button><h2>🏆 الإنجازات</h2></div>
+  <div class="card">${rows.map((r, i) => `<div class="row between" style="padding:10px;border-radius:14px;margin-top:6px;background:${esc(r.c.color)}22;${r.c.id === me ? 'border:2px solid ' + esc(r.c.color) : ''}">
+    <div class="row" style="align-items:center;gap:10px">${avatar(r.c, 44)}<div><b>${i + 1}. ${esc(r.c.name)}</b>${r.c.id === me ? ' <span class="pill">أنتِ</span>' : ''}</div></div>
+    <div class="row" style="gap:6px"><span class="pill">⭐ ${r.stars}</span><span class="pill">🏅 ${r.mastered} مهارة متقنة</span></div></div>`).join('')}</div>
+  <div class="tiles-grid"><button class="big-tile main" data-act="compHome"><span class="em">🏆</span>مسابقة بين البنات</button></div>`;
 }
 let CUR_CID = null; // الطفلة المعروضة الآن، لاختيار صوتها
 function renderChild(id){
@@ -1841,7 +1978,7 @@ function renderChild(id){
   const mastered = Object.keys(SKILLS).filter(sk => skillStatus(rs, sk) === 'mastered').length;
   // الترتيب: التنقل ← الدرس اليومي ← العدادات ← الأقسام ← الإعدادات (لون الشاشة في الأسفل)
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="home">→ الرئيسية</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
+  <div class="row between"><button class="btn ghost sm" data-act="home">→ الرئيسية</button><button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
   ${UI.pickProfile === id ? `<div class="card" style="text-align:center"><b>🖌️ اختاري لون ملفك:</b>
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)}33,#fff)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
@@ -1854,6 +1991,7 @@ function renderChild(id){
     <span class="pill">⭐ ${p.stars} نجمة</span><span class="pill">⏱️ اليوم ${ts.today} دقيقة</span><span class="pill">🏅 ${mastered} مهارة متقنة</span>${due ? `<span class="pill">🔁 ${due} للمراجعة</span>` : ''}
   </div>
   <div class="tiles-grid">
+    <button class="big-tile" data-act="achievements"><span class="em">🏆</span>الإنجازات</button>
     <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
     <button class="big-tile" data-act="arLab" data-id="${esc(id)}"><span class="em">🔤</span>العربية والقراءة</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="en"><span class="em">🅰️</span>English</button>
@@ -1881,6 +2019,8 @@ const QURAN_RECITERS = [['ar.husary','الحصري (مرتّل)'],['ar.minshawi'
 const QURAN_ALT = {};
 function idbOpen(){ return new Promise((res, rej) => { const r = indexedDB.open('academyQuran', 1); r.onupgradeneeded = () => r.result.createObjectStore('store'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
 async function idbGet(k){ const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction('store').objectStore('store').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function idbDel(k){ const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('store', 'readwrite'); t.objectStore('store').delete(k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+loadWordImages();
 async function idbPut(k, v){ const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('store', 'readwrite'); t.objectStore('store').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
 async function quranList(){
   let l = null; try { l = await idbGet('list'); } catch (e) {}
@@ -2530,7 +2670,7 @@ function renderStars(id){
 // ===== القصص المصورة =====
 function renderStory(id, fresh){
   const c = CH(id);
-  if (fresh || !UI.story || UI.story.cid !== id) { rnd = Math.random; UI.story = {cid:id, st:makeStory(S.children, Math.random() < 0.6 && !c.hideName ? c.name : null)}; }
+  if (fresh || !UI.story || UI.story.cid !== id) { rnd = Math.random; UI.story = {cid:id, st:makeStory([c], Math.random() < 0.6 && !c.hideName ? c.name : null)}; }
   const st = UI.story.st;
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="openChild" data-id="${esc(id)}">→ رجوع</button><span class="pill">${esc(c.emoji)} ${esc(kName(c))}</span></div>
@@ -2574,7 +2714,7 @@ function renderGames(id){
     <button class="big-tile" data-act="gHunt" data-id="${esc(id)}" data-lang="en"><span class="em">🔎</span>Letter Hunt<br><small class="muted">أفضل: ${g.huntEn || 0}</small></button>
     <button class="big-tile" data-act="gMem" data-id="${esc(id)}"><span class="em">🧠</span>لعبة الذاكرة<br><small class="muted">أقل محاولات: ${g.memory || '—'}</small></button>
     <button class="big-tile" data-act="gMinute" data-id="${esc(id)}"><span class="em">⏱️</span>تحدي الدقيقة<br><small class="muted">أفضل: ${g.minute || 0}</small></button>
-    <button class="big-tile main" data-act="compHome"><span class="em">🏆</span>مسابقة مع أختي</button>
+    <button class="big-tile main" data-act="achievements"><span class="em">🏆</span>الإنجازات والمسابقة</button>
   </div><p class="muted center">الألعاب تستخدم حروفكِ المختارة وكلمات القاموس، وتتغير في كل مرة.</p>`;
 }
 function gameSession(){ if (!G) return; clearInterval(G.timer); const dur = Math.round((Date.now() - G.start) / 1000); if (dur > 5) P(G.cid).sessions.push({id:uid(), start:G.start, dur, game:G.type, results:[]}); save(); }
@@ -2779,7 +2919,7 @@ async function openParent(){
       }
     }
   }
-  UI.parentOk = true; armParentTimer();
+  UI.parentOk = true; UI.kid = null; armParentTimer();
   if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
   go(renderParent);
 }
@@ -2913,7 +3053,7 @@ const PARENT = {
     const list = S.words.filter(w => f === 'all' || (f === 'review' ? w.review : f === 'en' ? w.lang === 'en' : f === 'ar' ? w.lang !== 'en' : f === 'sent' ? isSentence(w) : f.startsWith('kid:') ? (w.kids || []).includes(f.slice(4)) : w.type === 'linked' && (w.target || []).includes(f)));
     const linkedGroups = [...new Set(S.words.filter(w => w.type === 'linked' && w.lang !== 'en').flatMap(w => w.target || []))];
     const status = (w, cid) => { const it = P(cid).items['W:' + w.id]; if (!it) return '⚪'; const rs = allResults(cid).filter(r => r.k === 'W:' + w.id); if (it.box >= 3) return '🟢'; if (rs.length && rs[rs.length - 1].r === 'x') return '🔴'; return '🟡'; };
-    return `${e ? '' : bulkWordsHtml()}
+    return `${e ? '' : bulkWordsHtml()}${e ? wordImgHtml(e) : ''}
     <div class="card"><h3>${e ? '✏️ تعديل كلمة' : '➕ إضافة كلمة أو جملة يدوياً'}</h3>
       <div class="grid2">
         <div><label class="f">الكلمة أو الجملة (يفضّل بالتشكيل)</label><input id="fw" value="${esc(e ? e.w : '')}" placeholder="بَاب  /  apple  /  القِطُّ نَائِمٌ"></div>
@@ -3128,8 +3268,19 @@ async function unzip(buf){
 function xmlText(xml){ const doc = new DOMParser().parseFromString(xml, 'application/xml'); return [...doc.getElementsByTagNameNS('*', 't')].map(n => n.textContent).join('\n'); }
 async function loadPdfJs(){
   if (window.pdfjsLib) return window.pdfjsLib;
-  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  // النسخة المحفوظة على الجهاز أولاً (تعمل دون إنترنت)، وإلا تُحمَّل مرة واحدة وتُحفظ
+  let main = await idbGet('lib_pdfjs').catch(() => null), worker = await idbGet('lib_pdfjs_worker').catch(() => null);
+  if (!main || !worker) {
+    try {
+      const get = u => fetch(u).then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.text(); });
+      [main, worker] = await Promise.all([get(CDN + 'pdf.min.js'), get(CDN + 'pdf.worker.min.js')]);
+      await idbPut('lib_pdfjs', main); await idbPut('lib_pdfjs_worker', worker);
+    } catch (e) { throw new Error('قراءة PDF تحتاج اتصالاً بالإنترنت مرة واحدة على هذا الجهاز'); }
+  }
+  const asUrl = txt => URL.createObjectURL(new Blob([txt], {type: 'text/javascript'}));
+  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = asUrl(main); s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = asUrl(worker);
   return window.pdfjsLib;
 }
 // كل صفحة في PDF تصبح قصة: نصها + صورة مضغوطة للصفحة
@@ -3147,13 +3298,15 @@ async function pdfToStories(file){
   }
   return out;
 }
+let IMPORT_NOTES = []; // ملاحظات الاستيراد الحالي: صفحات مقتطعة، كلمات طويلة متجاوزة، حدّ الكلمات
 async function extractText(file){
   const name = file.name.toLowerCase();
   if (name.endsWith('.txt') || name.endsWith('.csv')) return await file.text();
   const buf = await file.arrayBuffer();
   if (name.endsWith('.pdf')) {
-    let lib; try { lib = await loadPdfJs(); } catch (e) { throw new Error('قراءة PDF تحتاج اتصالاً بالإنترنت لأول مرة'); }
+    let lib; try { lib = await loadPdfJs(); } catch (e) { throw new Error('قراءة PDF تحتاج اتصالاً بالإنترنت مرة واحدة على هذا الجهاز، أو حوّلي الملف إلى txt'); }
     const pdf = await lib.getDocument({data:buf}).promise; let out = '';
+    if (pdf.numPages > 40) IMPORT_NOTES.push(`قرأنا أول 40 صفحة من ${pdf.numPages}`);
     for (let i = 1; i <= Math.min(pdf.numPages, 40); i++) { const tc = await (await pdf.getPage(i)).getTextContent(); out += tc.items.map(x => x.str).join(' ') + '\n'; }
     return out;
   }
@@ -3170,14 +3323,17 @@ async function extractText(file){
 function tokenize(text){
   text = text.normalize('NFKC');
   const seen = new Set(), out = [];
+  let skippedLong = 0;
   for (const m of text.matchAll(/[ء-يً-ْٰ]+|[A-Za-z]+/g)) {
     let w = m[0]; const ar = isAr(w);
     if (!ar) w = w.toLowerCase();
     const key = ar ? strip(w) : w, len = ar ? plainLetters(w).length : w.length;
-    if (len < 2 || len > (ar ? 9 : 12) || seen.has(key)) continue;
+    if (len > (ar ? 9 : 12)) { skippedLong++; continue; }
+    if (len < 2 || seen.has(key)) continue;
     seen.add(key); out.push(w);
-    if (out.length >= 400) break;
+    if (out.length >= 400) { IMPORT_NOTES.push('وصلنا إلى 400 كلمة (الحد لكل استيراد)'); break; }
   }
+  if (skippedLong) IMPORT_NOTES.push(`تجاوزنا ${skippedLong} كلمة طويلة`);
   return out;
 }
 function showImport(words, opts = {}){
@@ -3186,7 +3342,7 @@ function showImport(words, opts = {}){
   UI.imp = {text:fresh.join('\n'), target:opts.target || '', review:!!opts.review, kids:opts.kids || []};
   renderParent();
   setTimeout(() => { const b = $('#impBox'); if (b) b.scrollIntoView({behavior:'smooth'}); }, 50);
-  toast(`وُجدت ${fresh.length} كلمة جديدة${words.length - fresh.length ? ` (تجاهلنا ${words.length - fresh.length} مكررة)` : ''}`);
+  toast(`وُجدت ${fresh.length} كلمة جديدة${words.length - fresh.length ? ` (تجاهلنا ${words.length - fresh.length} مكررة)` : ''}` + (opts.notes && opts.notes.length ? ' · ' + opts.notes.join(' · ') : ''));
 }
 // جلب كلمات من الإنترنت
 async function fetchWords(){
@@ -3329,6 +3485,22 @@ async function copyText(t){
 // ===== الأحداث =====
 const ACT = {
   home: () => go(renderHome),
+  kidLogin: () => {
+    const msg = $('#lmsg'), name = normName(($('#lname') || {}).value), code = (($('#lcode') || {}).value || '').trim();
+    if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
+    if (!name || !code) { msg.textContent = 'اكتبي اسمك والرمز'; return; }
+    const c = S.children.find(k => normName((k.name || '').split(/\s+/)[0]) === name);
+    // الرمز يُحفظ مجزّأً (hashPin) كرمز ولي الأمر، ولا يُخزَّن كما هو
+    if (!c || !c.code || c.code !== hashPin(code)) {
+      UI.loginFails = (UI.loginFails || 0) + 1;
+      if (UI.loginFails >= 5) { UI.loginFails = 0; UI.lockUntil = Date.now() + 60000; }
+      msg.textContent = 'الاسم أو الرمز غير صحيح';
+      return;
+    }
+    UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
+  },
+  kidLogout: () => { UI.kid = null; go(renderHome); },
+  achievements: () => go(renderAchievements),
   openChild: d => go(() => renderChild(d.id)),
   adhkar: d => go(() => renderAdhkar(d.id)),
   // لون ملف البنت (البطاقة والواجهة الرئيسية)، تختاره البنت من صفحتها
@@ -3745,22 +3917,63 @@ const ACT = {
     let target = $('#ft').value.trim().split(/[\s،,]+/).filter(Boolean).map(x => NORM[x] || x);
     if (lang === 'ar' && type === 'linked' && !target.length && !/\s/.test(w)) target = [...new Set(plainLetters(w).filter(l => !FREE_LETTERS.includes(l)))];
     const data = {w:lang === 'en' ? w.toLowerCase() : w, lang, type, target, emoji:$('#fem').value.trim(), meaning:$('#fmean').value.trim(), review:$('#frev').checked, kids:$$('.fkid:checked').map(x => x.value)};
+    let newId = null;
     if (UI.editWord) Object.assign(S.words.find(x => x.id === UI.editWord), data);
-    else { if (S.words.some(x => strip(x.w) === strip(data.w))) toast('تنبيه: الكلمة موجودة مسبقاً'); S.words.push({id:uid(), src:'parent', ...data}); }
-    UI.editWord = null; save(); renderParent(); toast('تم الحفظ');
+    else { if (S.words.some(x => strip(x.w) === strip(data.w))) toast('تنبيه: الكلمة موجودة مسبقاً'); newId = uid(); S.words.push({id:newId, src:'parent', ...data}); }
+    UI.editWord = newId; save(); renderParent(); toast(newId ? 'أُضيفت الكلمة، اختاري صورتها' : 'تم الحفظ');
+    if (newId) setTimeout(() => ACT.imgSearch({id:newId}), 200);
   },
   cancelWord: () => { UI.editWord = null; renderParent(); },
   editWord: d => { UI.editWord = d.id; renderParent(); window.scrollTo(0, 0); },
   speakWord: d => { const w = S.words.find(x => x.id === d.id); if (w) speak([[w.w, w.lang === 'en' ? 'en' : 'ar']]); },
   toggleReview: d => { const w = S.words.find(x => x.id === d.id); w.review = !w.review; save(); renderParent(); },
   approveAll: async () => { if (!(await confirmBox('اعتماد كل الكلمات المعروضة؟', 'ستظهر للبنات في الأنشطة.'))) return; const f = UI.wfilter; S.words.forEach(w => { if (w.review && (f === 'all' || f === 'review' || (f === 'en' && w.lang === 'en') || (f === 'ar' && w.lang !== 'en'))) w.review = false; }); save(); renderParent(); },
-  delWord: async d => { if (await confirmBox('حذف الكلمة؟', '')) { S.words = S.words.filter(x => x.id !== d.id); save(); renderParent(); } },
+  delWord: async d => { if (await confirmBox('حذف الكلمة؟', '')) { S.words = S.words.filter(x => x.id !== d.id); delete IMG[d.id]; idbDel('wimg_' + d.id).catch(() => {}); save(); renderParent(); } },
   fetchWords,
   impAdd: addImported,
   impCancel: () => { UI.imp = null; renderParent(); },
   impReverse: () => { const ta = $('#impText'); ta.value = ta.value.split('\n').map(l => isAr(l) ? units(l).reverse().join('') : l).join('\n'); },
   impVocalHint: () => modal('عن التشكيل', 'الكلمات المستوردة تأتي غالباً بلا تشكيل. يمكنك تعديل أي كلمة في المعاينة قبل الإضافة، أو لاحقاً بزر ✏️. التشكيل يحسّن النطق الصوتي ويجعل الكلمة قابلة للفك الصوتي.', [{label:'حسناً', val:1}]),
   delPhoto: d => { delete CH(d.id).photo; save(); renderParent(); },
+  imgSearch: async d => {
+    const box = $('#imgRes'); if (!box) return;
+    const q = (((($('#fimgq')) || {}).value) || '').trim() || ((S.words.find(x => x.id === d.id) || {}).w || '');
+    if (!q) return toast('اكتبي اسماً للبحث');
+    box.innerHTML = '⏳ جارٍ البحث...';
+    try {
+      const list = await commonsSearch(q); UI.imgCands = {id: d.id, list};
+      box.innerHTML = list.length
+        ? list.map((r, i) => `<div class="card" style="width:140px;padding:6px;text-align:center"><img src="${esc(r.thumb)}" alt="" style="width:120px;height:120px;object-fit:contain"><div class="muted" style="font-size:11px">${esc(r.artist || '—')}<br>${esc(r.license)}</div><button class="btn sm ok" data-act="imgApprove" data-id="${esc(d.id)}" data-i="${i}">✅ اعتماد</button></div>`).join('')
+        : 'لا توجد صور بترخيص مفتوح لهذه الكلمة. جرّبي اسماً إنجليزياً أو ارفعي صورة من جهازك.';
+    } catch (e) { box.innerHTML = 'تعذّر البحث، تأكدي من اتصال الإنترنت.'; }
+  },
+  imgApprove: async d => {
+    const cand = UI.imgCands && UI.imgCands.id === d.id ? UI.imgCands.list[+d.i] : null, w = S.words.find(x => x.id === d.id);
+    if (!cand || !w) return toast('ابحثي عن الصورة أولاً');
+    try {
+      const blob = await (await fetch(cand.thumb)).blob();
+      await idbPut('wimg_' + w.id, blob);
+      IMG[w.id] = URL.createObjectURL(blob);
+      w.img = true; w.imgCredit = {source:'commons', title:cand.title, artist:cand.artist, license:cand.license, url:cand.url};
+      UI.imgCands = null; save(); renderParent(); toast('تم اعتماد الصورة');
+    } catch (e) { toast('تعذّر تحميل الصورة'); }
+  },
+  imgRemove: async d => {
+    const w = S.words.find(x => x.id === d.id); if (!w) return;
+    delete w.img; delete w.imgCredit; delete IMG[w.id]; await idbDel('wimg_' + w.id).catch(() => {});
+    save(); renderParent(); toast('أُزيلت الصورة');
+  },
+  openPage: async d => {
+    const c = CH(d.cid), p = c && (c.pages || []).find(x => x.id === d.pid); if (!p) return;
+    const blob = await idbGet('page_' + p.id);
+    if (!blob) { toast('الصفحة غير موجودة على هذا الجهاز'); return; }
+    showPage(p.title, await blob.text());
+  },
+  delPage: async d => {
+    const c = CH(d.cid), p = c && (c.pages || []).find(x => x.id === d.pid); if (!p) return;
+    if (!(await confirmBox('حذف الصفحة ' + esc(p.title) + '؟', 'سيُحذف ملفها من هذا الجهاز.'))) return;
+    c.pages = c.pages.filter(x => x.id !== p.id); await idbDel('page_' + p.id); save(); renderParent();
+  },
   setTheme: d => { S.settings.theme = d.c; applyTheme(); save(); const g = $('#gtheme'); if (g) g.value = d.c; },
   colorPanel: () => { const p = $('#colorPanel'); if (p) p.hidden = !p.hidden; },
   toggleLetter: d => {
@@ -3789,7 +4002,10 @@ const ACT = {
     if (has('kenvoice')) c.enVoice = v('kenvoice');
     if (has('ken')) c.enRoutine = $('#ken_' + c.id).checked;
     if (has('khn')) c.hideName = $('#khn_' + c.id).checked;
-    if (has('khp')) c.hiddenProfile = !$('#khp_' + c.id).checked;
+    if (has('kcode') && v('kcode').trim()) {
+      if (v('kcode').trim().length < 4) toast('رمز الدخول 4 خانات على الأقل، لم يُغيَّر الرمز');
+      else { c.code = hashPin(v('kcode').trim()); c.codeSince = Date.now(); }
+    }
     if (has('kqr')) c.quranReciter = v('kqr');
     if (has('kml')) c.mathLayout = v('kml');
     if (has('kma')) c.mathAnswer = v('kma');
@@ -3812,7 +4028,7 @@ const ACT = {
   addKid: () => { S.children.push(newChild(uid(), 'اسم جديد', '⭐', '#3aa0d8')); save(); renderParent(); },
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
-    exportBackup(); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
+    exportBackup(); (CH(d.id).pages || []).forEach(p => idbDel('page_' + p.id).catch(() => {})); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
     S.words.forEach(w => { w.kids = (w.kids || []).filter(k => k !== d.id); }); UI.pchild = S.children[0].id; save(); renderParent();
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
@@ -3911,6 +4127,32 @@ const CHANGE = {
   hlLive: t => { S.settings.hl = t.value; applyTheme(); save(); },
   hlOn: t => { S.settings.hlOn = t.checked; save(); },
   // تصغير الصورة وقصّها مربعاً قبل الحفظ للحفاظ على مساحة التخزين
+  wordImgFile: t => {
+    const f = t.files && t.files[0]; t.value = ''; const w = S.words.find(x => x.id === t.dataset.id); if (!f || !w) return;
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 320 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      cv.toBlob(async blob => {
+        URL.revokeObjectURL(url);
+        await idbPut('wimg_' + w.id, blob); IMG[w.id] = URL.createObjectURL(blob);
+        w.img = true; w.imgCredit = {source:'device', title:f.name}; save(); renderParent(); toast('أُضيفت الصورة');
+      }, 'image/jpeg', 0.85);
+    };
+    img.src = url;
+  },
+  kidPage: async t => {
+    const f = t.files && t.files[0]; t.value = ''; if (!f) return;
+    const c = CH(t.dataset.id); if (!c) return;
+    try {
+      const {title, desc, doc} = buildPageDoc(f.name, await f.text());
+      const pid = 'pg' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      await idbPut('page_' + pid, new Blob([doc], {type: 'text/html'}));
+      (c.pages = c.pages || []).push({id: pid, title, desc, name: f.name, size: doc.length, added: Date.now()});
+      save(); renderParent(); toast('أُضيفت الصفحة: ' + title);
+    } catch (e) { toast('تعذّر حفظ الصفحة: ' + (e.message || e)); }
+  },
   kidPhoto: t => {
     const f = t.files && t.files[0]; if (!f) return;
     const url = URL.createObjectURL(f), img = new Image();
@@ -3927,8 +4169,8 @@ const CHANGE = {
     const f = t.files && t.files[0]; if (!f) return;
     const kid = $('#wKid') ? $('#wKid').value : '';
     if (!kid) { t.value = ''; return toast('اختاري البنت أولاً'); }
-    toast('جارِ قراءة الملف…');
-    try { const words = tokenize(await extractText(f)); if (!words.length) return toast('لم نجد كلمات في الملف'); showImport(words, {review:false, kids:[kid]}); }
+    toast('جارِ قراءة الملف…'); IMPORT_NOTES = [];
+    try { const words = tokenize(await extractText(f)); if (!words.length) return toast('لم نجد كلمات في الملف'); showImport(words, {review:false, kids:[kid], notes: [...IMPORT_NOTES]}); }
     catch (e) { toast(e && e.message && /[؀-ۿ]/.test(e.message) ? e.message : 'تعذّرت قراءة الملف (جرّبي xlsx أو pptx أو docx أو txt)'); }
     t.value = '';
   },
@@ -4126,7 +4368,7 @@ Object.assign(GEN, {
     if (!cand.length) return null;
     const w = pick(cand), L = plainLetters(w.w);
     return {key:'wr_letters_word:' + w.w, type:'order', dir:'rtl', prompt:'اسمعي الكلمة ورتّبي حروفها', say:[[w.w, 'ar']],
-      visual:w.emoji ? `<div class="emoji-xl">${esc(w.emoji)}</div>` : '', tiles:shuffle(L.map(l => ({val:l, html:`<span class="tw">${esc(l)}</span>`}))), answer:L};
+      visual:picBig(w), tiles:shuffle(L.map(l => ({val:l, html:`<span class="tw">${esc(l)}</span>`}))), answer:L};
   },
   // ---- English ----
   en_sound(ctx, t){
