@@ -4139,7 +4139,7 @@ const ACT = {
     }
     if (isFrozenNow(c)) { if (!c.frozen) { c.frozen = true; save(); } msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر. أرسلي طلب التفعيل لمدير النظام'; $('#frozenBox').innerHTML = `<label class="f">رسالة لمدير النظام</label><textarea id="frzMsg" rows="2" style="width:100%"></textarea><div class="row center" style="margin-top:8px"><button class="btn sm ok" data-act="sendFrozen" data-id="${esc(c.id)}">📨 إرسال طلب التفعيل</button></div>`; return; }
     recordLogin(c); save();
-    UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
+    UI.loginFails = 0; UI.parentOk = false; UI.kid = c.id; go(() => renderChild(c.id));
   },
   emailSend: async () => {
     const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase();
@@ -4160,7 +4160,7 @@ const ACT = {
       if (!c) throw new Error('الملف غير موجود');
       if (isFrozenNow(c)) { msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر'; return; }
       recordLogin(c); save();
-      UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
+      UI.parentOk = false; UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
     } catch (e) { msg.textContent = e.message; }
   },
   kidLogout: () => { UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
@@ -4934,6 +4934,7 @@ const CHANGE = {
   breakMin: t => { S.settings.breakMin = +t.value; save(); },
   // ولي الأمر يعدّل حالة مهارة يدوياً؛ يُسجَّل التغيير في سجل الحالات
   skillOverride: t => {
+    if (!UI.parentOk) return toast('تعديل الحالة لولي الأمر فقط');
     const cid = t.dataset.id, s = t.dataset.skill, p = P(cid);
     p.overrides = p.overrides || {};
     const from = skillStatus(allResults(cid), s);
@@ -5372,7 +5373,9 @@ function overrideSelect(cid, s){
 }
 function skillCompareRows(cid, list){
   const rs = allResults(cid);
-  return `<div class="tbl-wrap"><table><tr><th>المهارة</th><th>الحالة</th><th>استقلالية</th><th>عدد</th><th>تعديل الحالة</th></tr>${list.map(s => { const st = stat(rs.filter(r => r.s === s)); return `<tr><td>${SKILLS[s].em} ${SKILLS[s].n}</td><td>${chip(displayStatus(rs, s))}</td><td>${st.n ? st.ip + '%' : '—'}</td><td>${st.n}</td><td>${overrideSelect(cid, s)}</td></tr>`; }).join('')}</table></div>`;
+  // عمود التعديل لولي الأمر فقط؛ الطفلة ترى الحالة دون أدوات التعديل
+  const canEdit = !!UI.parentOk;
+  return `<div class="tbl-wrap"><table><tr><th>المهارة</th><th>الحالة</th><th>استقلالية</th><th>عدد</th>${canEdit ? '<th>تعديل الحالة</th>' : ''}</tr>${list.map(s => { const st = stat(rs.filter(r => r.s === s)); return `<tr><td>${SKILLS[s].em} ${SKILLS[s].n}</td><td>${chip(displayStatus(rs, s))}</td><td>${st.n ? st.ip + '%' : '—'}</td><td>${st.n}</td>${canEdit ? `<td>${overrideSelect(cid, s)}</td>` : ''}</tr>`; }).join('')}</table></div>`;
 }
 const skillChip = s => `<span class="chip">${SKILLS[s].em} ${SKILLS[s].n}</span>`;
 
