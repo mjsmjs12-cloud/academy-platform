@@ -4,8 +4,12 @@
 const MAX_BYTES = 900 * 1024;     // حد أعلى لحجم البيانات (قيمة KV)
 const FAMILY_RE = /^[a-f0-9]{32}$/;
 
+// أسماء المتغيرات: تكفي إحدى المجموعتين (KV القديمة، أو Upstash Redis من سوق Vercel)
+const kvUrl = () => process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const kvToken = () => process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+
 async function kv(path, method, body) {
-  const url = process.env.KV_REST_API_URL, token = process.env.KV_REST_API_TOKEN;
+  const url = kvUrl(), token = kvToken();
   const r = await fetch(url + path, { method, headers: { Authorization: 'Bearer ' + token }, body });
   if (!r.ok) throw new Error('kv ' + r.status);
   return r.json();
@@ -13,7 +17,7 @@ async function kv(path, method, body) {
 
 module.exports = async (req, res) => {
   // تحقّق من ربط التخزين، وإلا يظهر خطأ واضح بدل فشل صامت
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+  if (!kvUrl() || !kvToken()) {
     return res.status(503).json({ error: 'التخزين السحابي غير مربوط بالمشروع' });
   }
   const f = String((req.query && req.query.f) || '');
