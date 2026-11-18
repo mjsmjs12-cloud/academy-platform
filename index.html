@@ -2986,6 +2986,34 @@ function agents(){
 }
 const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const isActive = a => !a.until || a.until >= todayLocal();
+// ===== نشاط الطفلة: تنبيه بعد 3 أيام بلا دخول، وتجميد الحساب بعد 3 أشهر (90 يوماً) =====
+const DAY_MS = 86400000, INACTIVE_NOTICE_DAYS = 3, FREEZE_DAYS = 90;
+const daysSince = c => Math.floor((Date.now() - (c.lastLogin || Date.now())) / DAY_MS);
+const isFrozenNow = c => !!c.frozen || daysSince(c) >= FREEZE_DAYS;
+// يضبط الحالة المحفوظة: يبدأ العدّ للبنات القدامى الآن، ويجمّد من تجاوز المدة
+function ensureActivity(){
+  let changed = false;
+  S.children.forEach(c => {
+    if (!c.lastLogin) { c.lastLogin = Date.now(); changed = true; }
+    if (!c.frozen && daysSince(c) >= FREEZE_DAYS) { c.frozen = true; changed = true; }
+  });
+  if (changed) save();
+}
+// تنبيهات الدخول لبنات الوكيل (أو كل البنات للمدير)
+function alertsHtml(){
+  const rows = visibleKids().map(c => {
+    const d = daysSince(c);
+    if (isFrozenNow(c)) return `<div class="row" style="gap:6px">🔒 <b>${esc(c.name)}</b>: الحساب مجمّد، لم تدخل منذ ${d} يوم</div>`;
+    return d >= INACTIVE_NOTICE_DAYS ? `<div class="row" style="gap:6px">🔔 <b>${esc(c.name)}</b>: لم تدخل منذ ${d} يوم</div>` : '';
+  }).filter(Boolean);
+  return rows.length ? `<div class="card" style="border-right:6px solid #f0a500"><h3>🔔 تنبيهات الدخول</h3>${rows.join('')}</div>` : '';
+}
+// حالة الحساب في ملف البنت، مع زر إعادة التفعيل لمدير النظام فقط
+function kidStatusHtml(c){
+  if (isFrozenNow(c)) return `<div class="card" style="border:2px solid #d9534f"><b>🔒 الحساب مجمّد</b><p class="muted">لم تدخل منذ ${daysSince(c)} يوم. تظهر لها ملاحظة الحساب عند محاولة الدخول.</p>${UI.parentRole === 'admin' ? `<button class="btn ok" data-act="reactivateKid" data-id="${esc(c.id)}">🔓 إعادة تفعيل الحساب</button>` : ''}</div>`;
+  const d = daysSince(c);
+  return d >= INACTIVE_NOTICE_DAYS ? `<div class="card"><b>🔔 لم تدخل منذ ${d} يوم</b></div>` : '';
+}
 // دور الدخول: مدير النظام، أو وكيل نشط، أو وكيل منتهٍ
 function pinRole(input){
   if (pinMatches(input)) return {role:'admin'};
@@ -3012,7 +3040,7 @@ function guardDenied(act, d){
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setMenu','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','reactivateKid']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 function agentsHtml(){
@@ -3079,7 +3107,7 @@ const PARENT_GROUPS = [
 ];
 const PARENT_LABELS = {kids:'👧 أسماء البنات وملفاتهن', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 function renderParent(){
-  applyTheme();
+  applyTheme(); ensureActivity();
   const guard = UI.parentRole === 'guardian';
   const allowed = t => !guard || (!!TAB_PERM[t] && agentAllows(TAB_PERM[t]));
   const groups = PARENT_GROUPS.map(([t, keys]) => [t, keys.filter(allowed)]).filter(([, keys]) => keys.length);
@@ -3091,7 +3119,7 @@ function renderParent(){
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
   <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
   <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
-  <div>${PARENT[cur]()}</div>`;
+  ${alertsHtml()}<div>${PARENT[cur]()}</div>`;
 }
 // الكؤوس: تُستحق بالفوز في المسابقات، وبعدد النجوم، وبعدد المهارات المتقنة
 const CUP_RULES = [
@@ -3301,6 +3329,7 @@ const PARENT = {
     if (!open) return `<div class="card"><h3>👧 أسماء البنات</h3><p class="muted">اختاري بنتاً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small></button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة بنت/طفل</button></div>`;
     const sec = KID_SECS.some(([k]) => k === UI.kidSec) ? UI.kidSec : 'profile';
     return `<div class="row" style="margin-bottom:8px"><button class="btn ghost" data-act="closeKid">← قائمة البنات</button></div>
+    ${kidStatusHtml(open)}
     <div class="card" style="border-top:6px solid ${esc(open.color)}"><h3>${esc(open.emoji)} ${esc(open.name)}</h3>
       <div class="row">${KID_SECS.map(([k, n]) => `<button class="btn sm ${k === sec ? '' : 'ghost'}" data-act="kidSec" data-k="${k}">${n}</button>`).join('')}</div></div>
     ${kidSecHtml(open, sec)}
@@ -3700,6 +3729,8 @@ const ACT = {
       msg.textContent = 'الاسم أو الرمز غير صحيح، تأكدي من كتابة الاسم كما هو في الملف';
       return;
     }
+    if (isFrozenNow(c)) { if (!c.frozen) { c.frozen = true; save(); } msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر. تواصلي مع ولي الأمر لإعادة تفعيله'; return; }
+    c.lastLogin = Date.now(); save();
     UI.loginFails = 0; UI.kid = c.id; go(() => renderChild(c.id));
   },
   kidLogout: () => { UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
@@ -4247,7 +4278,8 @@ const ACT = {
     if (levelRaw(c) !== oldLevel) { const m = LEVEL_MATH[levelRaw(c) - 1]; c.mathMax = m; c.addMax = m; c.subMax = m; }
     save(); renderParent(); toast('تم الحفظ');
   },
-  addKid: () => { const id = uid(); S.children.push(newChild(id, 'اسم جديد', '⭐', '#3aa0d8')); const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id); save(); renderParent(); },
+  reactivateKid: d => { const c = CH(d.id); if (!c) return; c.frozen = false; c.lastLogin = Date.now(); save(); toast('تمت إعادة تفعيل الحساب ✅'); renderParent(); },
+  addKid: () => { const id = uid(); S.children.push(Object.assign(newChild(id, 'اسم جديد', '⭐', '#3aa0d8'), {lastLogin: Date.now()})); const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id); save(); renderParent(); },
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
     exportBackup(); (CH(d.id).pages || []).forEach(p => idbDel('page_' + p.id).catch(() => {})); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
