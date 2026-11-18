@@ -523,7 +523,7 @@ async function bootApp(){
   S = r.state;
   if (r.legacy) persistNow(JSON.stringify(S)); // ترحيل مرة واحدة إلى IndexedDB دون تغيير توقيت المزامنة
   const fromLink = await cloudPullFromLink().catch(() => false); // جهاز آخر يفتح الرابط: تُحمَّل بيانات الأكاديمية من الخادم
-  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setCloudV(S._v || 0); }
+  if (fromLink) { S = fromLink; persistNow(JSON.stringify(S)); setCloudV(S._v || 0); CLOUD_SNAP = cloudSnapshot(); }
   READY = true;
   UI.hasPrev = !!(await idbGet('state_prev').catch(() => null));
   applyTheme(); renderHome(); driveBoot(); startCloudPolling();
@@ -715,11 +715,14 @@ const cloudLink = f => location.origin + location.pathname + '?f=' + f;
 // المزامنة بالإصدارات (_v) لا بتوقيت الجهاز: ساعات الأجهزة المختلفة لا تؤثر فيها
 // CLOUD_DIRTY = في الجهاز تعديل لم يُرفع بعد
 let CLOUD_DIRTY = false;
+let CLOUD_SNAP = null; // لقطة آخر حالة رُفعت أو طُبّقت من الخادم (بلا الإصدار والرابط)
+const cloudSnapshot = () => { const o = Object.assign({}, S); delete o._v; delete o.cloud; return JSON.stringify(o); };
 const cloudVKey = () => 'academyCloudV:' + ((S.cloud && S.cloud.f) || '');
 const cloudV = () => +(localStorage.getItem(cloudVKey()) || 0);
 const setCloudV = (v, f) => { try { localStorage.setItem('academyCloudV:' + (f || (S.cloud && S.cloud.f) || ''), String(v || 0)); } catch (e) {} };
 function cloudSoon(){
   if (!S.cloud || !S.cloud.f) return;
+  if (CLOUD_SNAP !== null && cloudSnapshot() === CLOUD_SNAP) return; // لا تغيير في البيانات: لا مزامنة
   CLOUD_DIRTY = true;
   clearTimeout(CLOUD_TIMER);
   CLOUD_TIMER = setTimeout(() => cloudPush().catch(() => cloudRetry()), 1500);
@@ -742,7 +745,7 @@ function cloudApply(d){
     keepPrev(JSON.stringify(S));
     const link = S.cloud, f = link.f;
     S = migrate(d); S.cloud = link;
-    persistNow(JSON.stringify(S)); setCloudV(d._v || 0, f);
+    persistNow(JSON.stringify(S)); setCloudV(d._v || 0, f); CLOUD_SNAP = cloudSnapshot();
     applyTheme();
     if (UI.parentOk) renderParent();
     else if (UI.kid && !document.querySelector('input:focus, textarea:focus')) renderChild(UI.kid);
@@ -774,6 +777,7 @@ async function cloudPush(){
   // (التعديل المحلي يبقى في «استعادة النسخة السابقة»)
   if (remote && rv > cloudV()) { cloudApply(remote); return true; }
   const v = Math.max(rv, cloudV()) + 1;
+  const snap = cloudSnapshot();
   S._v = v;
   const body = JSON.stringify(S);
   if (body.length > CLOUD_MAX) { toast('حجم البيانات أكبر من الحد المسموح للرابط'); return false; }
@@ -788,7 +792,7 @@ async function cloudPush(){
       const err = new Error(why || ('status ' + r.status)); err.status = r.status; throw err;
     }
   } catch (e) { CLOUD_DIRTY = true; throw e; }
-  setCloudV(v);
+  setCloudV(v); CLOUD_SNAP = snap;
   return true;
 }
 // يحوّل خطأ الرفع إلى سبب مفهوم بالعربية
