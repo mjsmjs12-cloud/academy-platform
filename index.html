@@ -2651,6 +2651,13 @@ async function recordVoice(onSaved, onChange){
 const editBox = (k, text) => UI.edit === k
   ? `<div class="row" style="gap:6px;margin-top:6px"><textarea id="edTxt" rows="2" style="flex:1">${esc(text)}</textarea><button class="btn sm ok" data-act="saveEdit" data-k="${esc(k)}">💾 حفظ</button><button class="btn sm ghost" data-act="editCancel">إلغاء</button></div>`
   : `<button class="btn sm ghost" data-act="editStart" data-k="${esc(k)}">✏️ تعديل</button>`;
+// عنوان الغرفة كما يراه المدير: المجموعة، أو مجموعة الإخوة لولي أمر، أو محادثة بين شخصين
+function roomTitle(room){
+  if (room === 'group') return '👥 المجموعة الجماعية';
+  if (room.startsWith('grp:')) { const a = agents().find(x => x.id === room.slice(4)); return '👥 مجموعة الإخوة' + (a ? ' — ' + esc(a.name) : ''); }
+  const names = room.slice(3).split('|').map(id => { const c = CH(id); if (c) return c.name; const a = agents().find(x => x.id === id); return a ? a.name : '—'; });
+  return '💬 ' + names.map(n => esc(n)).join(' و ');
+}
 const roomMsgs = room => chatState().msgs.filter(m => m.room === room).sort((a, b) => a.at - b.at);
 // عدد الرسائل غير المقروءة للطفل: من المجموعة، ومن رسائلها الخاصة، ومن التعميمات
 function chatUnread(cid){
@@ -4157,8 +4164,17 @@ const PARENT = {
     return `<div class="card" style="border-right:6px solid #f0a500"><h3>📢 تعميم للجميع</h3><p class="muted">يصل إلى كل الأطفال، ويبقى 48 ساعة ثم يُحذف.</p><textarea id="bcTxt" rows="2" style="width:100%" placeholder="اكتبي نص التعميم"></textarea><div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="broadcastSend">📢 إرسال التعميم</button><button class="btn sm ${CHAT_REC ? 'danger' : 'ok'}" data-act="${CHAT_REC ? 'chatRecStop' : 'bcRecStart'}">${CHAT_REC ? '⏹️ إيقاف التسجيل' : '🎙️ تعميم صوتي'}</button></div>${list.length ? `<h4 style="margin-top:12px">آخر التعميمات</h4>${list.map(b => `<div style="border-bottom:1px dashed #f0b6cc;padding:6px 0"><div class="row between" style="gap:6px"><span>${b.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(b.vk)}">▶️ استماع 📢🎙️</button>` : esc(b.text)}</span><button class="btn sm danger" data-act="broadcastDel" data-id="${esc(b.id)}">🗑️</button></div>${b.kind === 'voice' ? '' : editBox('bc:' + b.id, b.text)}</div>`).join('')}` : ''}</div>`;
   },
   chatWatch(){
-    const list = chatState().msgs.slice().sort((a, b) => b.at - a.at).slice(0, 30);
-    return `<div class="card"><h3>👀 محادثات الأطفال (آخر 48 ساعة)</h3>${list.length ? list.map(m => `<div style="border-bottom:1px dashed #f0b6cc;padding:6px 0"><div class="row between" style="gap:6px"><span><b>${esc(m.name)}</b> ${(m.room === 'group' || m.room.startsWith('grp:')) ? '(المجموعة)' : '(خاصة)'}</span><span class="muted" style="font-size:11px">${esc(msgTime(m.at))}</span></div>${m.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(m.vk)}">▶️ استماع 🎙️</button>` : `<div>${esc(m.text)}</div>${editBox('ch:' + m.id, m.text)}`}<div class="row" style="gap:6px;margin-top:4px"><button class="btn sm danger" data-act="chatDel" data-id="${esc(m.id)}">🗑️ حذف</button></div></div>`).join('') : '<p class="muted">لا توجد محادثات.</p>'}</div>`;
+    // المحادثات تُعرض كل غرفة على حدة، والرسائل داخلها بالترتيب الزمني كما تظهر في محادثة الطفل
+    const byRoom = {};
+    chatState().msgs.forEach(m => (byRoom[m.room] = byRoom[m.room] || []).push(m));
+    const latest = r => Math.max(...byRoom[r].map(m => m.at));
+    const rooms = Object.keys(byRoom).sort((x, y) => latest(y) - latest(x));
+    const bubble = m => {
+      const content = m.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(m.vk)}">▶️ استماع 🎙️</button>` : `<div>${esc(m.text)}</div>${editBox('ch:' + m.id, m.text)}`;
+      return `<div style="margin:6px 0;padding:6px 10px;border-radius:12px;background:#fde4ee;max-width:85%"><div class="row between" style="gap:6px"><b style="font-size:12px">${esc(m.name)}</b><span class="muted" style="font-size:11px">${esc(msgTime(m.at))}</span></div>${content}<button class="btn sm danger" style="margin-top:4px" data-act="chatDel" data-id="${esc(m.id)}">🗑️ حذف</button></div>`;
+    };
+    const body = rooms.map(r => `<div style="border:1px solid #f0b6cc;border-radius:12px;padding:8px;margin-top:10px"><h4 style="margin:0 0 4px">${roomTitle(r)} <span class="muted" style="font-size:12px">(${byRoom[r].length} رسالة)</span></h4>${byRoom[r].slice().sort((a, b) => a.at - b.at).map(bubble).join('')}</div>`).join('');
+    return `<div class="card"><h3>👀 محادثات الأطفال (آخر 48 ساعة)</h3>${rooms.length ? body : '<p class="muted">لا توجد محادثات.</p>'}</div>`;
   },
   inboxList(){
     const list = (S.inbox || []).filter(msgVisible).slice().reverse();
