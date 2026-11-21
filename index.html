@@ -1412,7 +1412,7 @@ const GEN = {
     const short = arr => arr.filter(w => { const n = plainLetters(w.w).length; return n >= 2 && n <= 5; });
     let W = short(ctx.words);
     // احتياط: إن لم تتوفر كلمات مناسبة من القاموس المفلتر، نستعمل كلمات الطفل بلا فلتر التركيز ثم كلمات البداية المقروءة بحروفها
-    if (!W.length) W = short(childWords(ctx.child, null));
+    if (!W.length && !ctx.comp) W = short(childWords(ctx.child, null)); // المسابقة لا تقرأ كلمات الطفل
     if (!W.length) W = short(STARTER_OBJ.filter(w => isDecodable(w, ctx.child.arLetters)));
     if (!W.length) return null;
     let w = t && W.find(x => x.id === t); if (!w) w = pick(W);
@@ -1426,7 +1426,8 @@ const GEN = {
     const F = ctx.F; if (!F.length) return null;
     let text = t && (F.includes(t) || t.length > 1) ? t : null;
     if (!text) {
-      const mastered = ctx.words.filter(w => (P(ctx.child.id).items['W:' + w.id] || {}).box >= 3 && plainLetters(w.w).length <= 4);
+      // المسابقة لا تعتمد على تقدّم الطفل في الكلمات المتقنة
+      const mastered = ctx.comp ? [] : ctx.words.filter(w => (P(ctx.child.id).items['W:' + w.id] || {}).box >= 3 && plainLetters(w.w).length <= 4);
       text = mastered.length && rnd() < 0.3 ? strip(pick(mastered).w) : pick(F);
     }
     return {key:'ar_writing:' + text, type:'trace', prompt:text.length > 1 ? 'تتبّعي الكلمة بإصبعك، ثم اكتبيها في الدفتر' : 'تتبّعي الحرف بإصبعك، ثم اكتبيه في الدفتر',
@@ -3426,12 +3427,15 @@ function memTap(i){
 
 // ===== المسابقات =====
 function groupLevel(c){ let g = 0; for (const grp of GROUPS) { if (grp.every(l => c.arLetters.includes(l))) g++; else break; } return Math.max(1, g); }
-function compChild(base, p){ return {id:base.id, name:base.name, emoji:base.emoji, photo:base.photo, color:base.color, arLetters:GROUPS.slice(0, p.g).flat(), focus:[], enFocus:[], enCount:p.en, mathMax:p.max, addMax:p.max, subMax:p.max, minutes:999}; }
-const compCode = c => [c.seed.toString(36), c.sub, c.n, c.g, c.en, c.max].join('-');
+// ملف المسابقة محايد: المستوى 1 ولا إعدادات شخصية، فيأخذ اللاعبتان الأسئلة نفسها من البذرة
+function compChild(base, p){ return {id:base.id, name:base.name, emoji:base.emoji, photo:base.photo, color:base.color, level:1, arLetters:GROUPS.slice(0, p.g).flat(), focus:[], enFocus:[], enCount:p.en, mathMax:p.max, addMax:p.max, subMax:p.max, minutes:999}; }
+// رمز التحدي رقمان فقط (00-99)، والإعدادات ثابتة: mix / 10 سؤال / مستوى 1 / 6 حروف / حد الرياضيات 10
+const COMP_FIXED = {sub:'mix', n:10, g:1, en:6, max:10};
+const compCode = c => String(c.seed).padStart(2, '0');
 function parseCode(code){
-  const m = String(code).trim().toLowerCase().match(/^([0-9a-z]+)-(mix|ar|en|m)-(\d+)-(\d+)-(\d+)-(\d+)$/);
+  const m = String(code).trim().match(/^\d{2}$/);
   if (!m) return null;
-  return {seed:parseInt(m[1], 36), sub:m[2], n:+m[3], g:Math.min(7, Math.max(1, +m[4])), en:Math.min(26, Math.max(1, +m[5])), max:Math.max(5, +m[6])};
+  return {seed:+m[0], ...COMP_FIXED};
 }
 function compWins(cid){ const c = CH(cid); return S.comps.filter(x => x.winnerId === cid || (!x.winnerId && c && x.winner === c.name)).length; }
 function renderComp(){
@@ -3448,7 +3452,7 @@ function renderComp(){
   <div class="card"><h3>📱📱 على جهازين (برمز تحدٍّ)</h3>
     <div class="grid2"><div><label class="f">من تلعب على هذا الجهاز؟</label><select id="rp">${opts(0)}</select></div><div><label class="f">نوع الأسئلة</label>${subSel('rsub')}</div><div><label class="f">عدد الأسئلة</label>${nSel('rn')}</div></div>
     <div class="row" style="margin-top:10px"><button class="btn" data-act="compCreate">➕ إنشاء تحدٍّ جديد</button></div>
-    <label class="f">أو أدخلي رمز التحدي الذي وصلكِ:</label><div class="row"><input id="rcode" dir="ltr" placeholder="abc123-mix-10-1-6-10" style="flex:1"><button class="btn ok" data-act="compJoin">دخول</button></div>
+    <label class="f">أو أدخلي رمز التحدي الذي وصلكِ:</label><div class="row"><input id="rcode" dir="ltr" placeholder="مثال: 67" style="flex:1"><button class="btn ok" data-act="compJoin">دخول</button></div>
     <p class="muted">طريقة اللعب: أنشئي التحدي على جهاز وأرسلي الرمز للجهاز الآخر (واتساب مثلاً). تظهر الأسئلة نفسها للطفلين. في النهاية تتبادلان «رمز النتيجة» فتظهر الفائزة. لا يحتاج إنترنت.</p></div>
   <div class="card"><h3>📜 سجل المسابقات</h3>${S.comps.length ? `<div class="tbl-wrap"><table><tr><th>التاريخ</th><th>النوع</th><th>النتيجة</th><th>الفائزة</th></tr>${S.comps.slice().reverse().slice(0, 20).map(x => `<tr><td>${esc(x.date)}</td><td>${COMP_NAMES[x.sub] || ''} (${x.mode === 'local' ? 'جهاز واحد' : 'جهازان'})</td><td>${x.players.map(p => `${esc(p.name)}: ${p.score} (${p.time}ث)`).join(' • ')}</td><td>🏆 ${esc(x.winner)}</td></tr>`).join('')}</table></div>` : '<p class="muted">لا مسابقات بعد.</p>'}
   <div class="chips" style="margin-top:8px">${S.children.map(c => `<span class="chip" style="background:${esc(c.color)}22">${esc(c.emoji)} ${esc(c.name)}: ${compWins(c.id)} فوز</span>`).join('')}</div></div>`;
@@ -5078,7 +5082,8 @@ const ACT = {
   compNext: () => compTurn(),
   compCreate: () => {
     const a = CH($('#rp').value);
-    UI.comp = {mode:'remote', sub:$('#rsub').value, n:+$('#rn').value, seed:Math.floor(Math.random() * 1e9), g:groupLevel(a), en:a.enCount, max:a.mathMax, turn:0, players:[{cid:a.id, name:a.name, score:0, time:0}]};
+    // الرمز رقمان فقط (00-99) والإعدادات ثابتة (COMP_FIXED)
+    UI.comp = {mode:'remote', ...COMP_FIXED, seed:Math.floor(Math.random() * 100), turn:0, players:[{cid:a.id, name:a.name, score:0, time:0}]};
     renderCompCreated();
   },
   compJoin: () => {
