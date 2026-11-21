@@ -3798,7 +3798,7 @@ const isGuardian = a => (a.perms || []).includes('kids');
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
   const ags = agents().filter(isGuardian), kids = S.children;
-  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted">إسناد الأطفال:</span>${kids.map(c => `<label class="chk"><input type="checkbox" data-change="gKid" data-id="${esc(a.id)}" data-k="${esc(c.id)}" ${a.kids.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('') || '<span class="muted">لا يوجد أطفال بعد</span>'}</div></td></tr>`; }).join('');
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><input data-gkn="${esc(a.id)}" maxlength="40" placeholder="اسم الطفل" style="width:150px"><input data-gkc="${esc(a.id)}" type="password" inputmode="numeric" autocomplete="off" placeholder="رمز الطفل (4 خانات على الأقل)" style="width:200px"><button class="btn ok sm" data-act="gmKidAdd" data-id="${esc(a.id)}">➕ إضافة طفل لهذا الولي</button></div></td></tr>`; }).join('');
   const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
   return `<div class="card"><h3>📋 سجل المستخدمين</h3>
     <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
@@ -5445,6 +5445,22 @@ const ACT = {
     save(); toast('تمت إضافة ولي الأمر ✅');
     const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
   },
+  // إضافة طفل جديد مباشرة إلى ولي أمر من سجل المستخدمين، بنفس شروط إضافة الطفل من لوحة ولي الأمر
+  gmKidAdd: d => {
+    const a = agents().find(x => x.id === d.id); if (!a) return toast('ولي الأمر غير موجود');
+    const name = (((document.querySelector(`[data-gkn="${d.id}"]`)) || {}).value || '').trim();
+    const code = (((document.querySelector(`[data-gkc="${d.id}"]`)) || {}).value || '').trim();
+    if (!name) return toast('اكتبي اسم الطفل');
+    if (S.children.some(c => normName(c.name) === normName(name))) return toast('يوجد طفل بهذا الاسم');
+    if (code.length < 4) return toast('الرمز 4 خانات على الأقل');
+    if (a.kids.length >= agentMaxKids(a)) return toast('وصل ولي الأمر إلى الحد الأقصى من الأطفال (' + agentMaxKids(a) + ')');
+    const h = hashPin(code);
+    if (h === S.settings.pin || agents().some(x => x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
+    const id = uid();
+    S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
+    a.kids.push(id); save(); toast('تمت إضافة الطفل ✅');
+    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+  },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
@@ -5781,8 +5797,6 @@ const CHANGE = {
   },
   // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
-  // إسناد طفل إلى ولي أمر من سجل المستخدمين، ثم تحديث الجدول فوراً
-  gKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); toast('تم الحفظ ✅'); },
   agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
   // حد الأطفال لولي أمر بعينه؛ الحقل الفارغ يعيده إلى الإعداد العام
   agentMax: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const v = parseInt(t.value, 10); if (Number.isFinite(v) && v >= 1) a.maxKids = Math.min(50, v); else delete a.maxKids; save(); toast('تم الحفظ ✅'); },
