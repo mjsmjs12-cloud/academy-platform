@@ -4719,6 +4719,8 @@ const ACT = {
   // خروج ولي الأمر من حسابه
   // خروج عام من أي صفحة (ولي أمر، مدير، أو طفل): يمسح الجلسة في هذا التبويب
   gSendAdmin: () => { const a = currentAgent(), t = (($('#gaTxt') || {}).value || '').trim(); if (!a) return; if (!t) return toast('اكتبي رسالتك أولاً'); sendToAdmin('agent:' + a.id, a.name, t, 'msg', null, 'admin', ($('#gaSub') || {}).value || 'general'); toast('تم إرسال الرسالة لمدير النظام ✅'); $('#gaTxt').value = ''; },
+  // فتح مادة واحدة من بطاقة المهارات مع بقاء موضع الشاشة
+  skSub: d => { const y = window.scrollY; UI.skSub = d.s; renderParent(); window.scrollTo(0, y); },
   appLogout: () => { clearTimeout(parentTimer); UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} go(renderHome); },
   guardLogout: () => { UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفل الرئيسية
@@ -6111,10 +6113,15 @@ function overrideSelect(cid, s){
   return `<select data-change="skillOverride" data-id="${esc(cid)}" data-skill="${s}" aria-label="تعديل حالة المهارة">${opt('', 'تلقائي')}${opt('mastered', 'متقنة')}${opt('learning', 'قيد التعلم')}${opt('support', 'تحتاج إلى دعم')}</select>`;
 }
 // بطاقة حالة المهارات في صفحة ولي الأمر: كل المواد، مع تعديل الحالة يدوياً
+// كل مادة صفحة مستقلة تُفتح من أزرار المواد، بدلاً من جدول طويل يجمع كل المواد
 function skillOverrideCardHtml(cid){
   if (!UI.parentOk) return '';
-  const body = Object.entries(SKILL_PATH).map(([sub, path]) => `<h4>${SUBJECTS[sub].em} ${SUBJECTS[sub].n}</h4>${skillCompareRows(cid, path)}`).join('');
-  return `<div class="card"><h3>🎛️ حالة المهارات وتعديلها يدوياً</h3><p class="muted">تلقائي = الحالة المحسوبة من الأداء، وأي تعديل يُطبَّق فوراً على صفحة الطفل.</p>${body}</div>`;
+  const subs = Object.keys(SKILL_PATH);
+  const cur = subs.includes(UI.skSub) ? UI.skSub : subs[0];
+  const tabs = subs.map(sub => `<button class="btn sm ${sub === cur ? '' : 'ghost'}" data-act="skSub" data-s="${sub}">${SUBJECTS[sub].em} ${SUBJECTS[sub].n}</button>`).join('');
+  return `<div class="card"><h3>🎛️ حالة المهارات وتعديلها يدوياً</h3><p class="muted">تلقائي = الحالة المحسوبة من الأداء، وأي تعديل يُطبَّق فوراً على صفحة الطفل.</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin:8px 0">${tabs}</div>
+    <h4>${SUBJECTS[cur].em} ${SUBJECTS[cur].n}</h4>${skillCompareRows(cid, SKILL_PATH[cur])}</div>`;
 }
 function skillCompareRows(cid, list){
   const rs = allResults(cid);
