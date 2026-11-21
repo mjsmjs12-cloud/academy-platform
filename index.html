@@ -4812,7 +4812,6 @@ const ACT = {
     if (S.children.some(c => normName(c.name) === normName(name))) return toast('يوجد طفل بهذا الاسم');
     if (code.length < 4) return toast('الرمز 4 خانات على الأقل');
     const h = hashPin(code);
-    if (h === S.settings.pin || agents().some(x => x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     const id = uid();
     S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
     a.kids.push(id); UI.gAddKid = false; save(); toast('تمت إضافة الطفل ✅'); renderGuardianHome();
@@ -4824,7 +4823,6 @@ const ACT = {
     if (p1.length < 4) return toast('الرمز 4 خانات على الأقل');
     if (p1 !== p2) return toast('الرمزان غير متطابقين');
     const h = hashPin(p1);
-    if (h === S.settings.pin || agents().some(x => x.id !== a.id && x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     a.pin = h; save(); toast('تم تغيير رمزك ✅'); renderGuardianHome();
   },
   // خروج ولي الأمر من حسابه
@@ -5440,7 +5438,6 @@ const ACT = {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('البريد الإلكتروني غير صحيح');
     if (pin.length < 4 || !/^\d+$/.test(pin)) return toast('الرمز 4 أرقام على الأقل');
     const h = hashPin(pin);
-    if (h === S.settings.pin || agents().some(a => a.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     const kids = [...document.querySelectorAll('.gmKid:checked')].map(x => x.value);
     // الأطفال اختياريون عند الإنشاء، ويُسندون لاحقاً من سجل المستخدمين أو من ولي الأمر
     agents().push({id: 'ag' + Date.now().toString(36), name: name.slice(0, 40), email, pin: h, perms: AGENT_TEMPLATES.full.perms.slice(), until: '', kids, off: false});
@@ -5457,7 +5454,6 @@ const ACT = {
     if (code.length < 4) return toast('الرمز 4 خانات على الأقل');
     if (a.kids.length >= agentMaxKids(a)) return toast('وصل ولي الأمر إلى الحد الأقصى من الأطفال (' + agentMaxKids(a) + ')');
     const h = hashPin(code);
-    if (h === S.settings.pin || agents().some(x => x.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     const id = uid();
     S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
     a.kids.push(id); save(); toast('تمت إضافة الطفل ✅');
@@ -5469,7 +5465,6 @@ const ACT = {
     if (!name) return toast('اكتبي اسم الوكيل');
     if (pin.length < 4) return toast('الرمز 4 أرقام على الأقل');
     const h = hashPin(pin);
-    if (h === S.settings.pin || agents().some(a => a.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     const kids = [...document.querySelectorAll('.agNewKid:checked')].map(x => x.value);
     if (!kids.length) return toast('اختاري طفلاًً واحدة على الأقل');
     agents().push({id:'ag' + Date.now().toString(36), name, pin:h, perms:AGENT_TEMPLATES[d.t].perms.slice(), until, kids});
