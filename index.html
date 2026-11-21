@@ -3810,7 +3810,9 @@ function kidStatusHtml(c){
   const d = daysSince(c);
   return d >= INACTIVE_NOTICE_DAYS ? `<div class="card"><b>🔔 لم تدخل منذ ${d} يوم</b></div>` : '';
 }
-const currentAgent = () => agents().find(x => x.id === UI.agentId) || null;
+// الوكيل الفرعي (باسم ولي الأمر): صلاحياته وأطفاله لا تتجاوز ما يملكه ولي الأمر الآن، وينتهي بإيقافه
+const effectiveAgent = a => { if (!a || !a.parentId) return a; const p = agents().find(x => x.id === a.parentId); if (!p) return { ...a, perms: [], kids: [], off: true }; return { ...a, perms: a.perms.filter(k => p.perms.includes(k)), kids: a.kids.filter(id => p.kids.includes(id)), off: !!a.off || !!p.off || !isActive(p) }; };
+const currentAgent = () => effectiveAgent(agents().find(x => x.id === UI.agentId) || null);
 // الأطفال المرئيات: المدير يرى الكل، والوكيل يرى الأطفال المسندون إليه فقط (وقد يكون للوكيل أكثر من طفل)
 const visibleKids = () => { if (UI.parentRole !== 'guardian') return S.children; const a = currentAgent(); return a ? S.children.filter(c => a.kids.includes(c.id)) : []; };
 // أسماء الأولياء النشطين لكل طفل (وقد يكون للطفل أكثر من ولي أمر)
@@ -3826,6 +3828,7 @@ function guardDenied(act, d){
   if (['broadcastSend','broadcastDel','bcRecStart'].includes(act) && !a.perms.includes('broadcast')) return 'إرسال التعميمات غير مسموح لهذا الوكيل';
   if (['kidChatStop','gmChatStop','gmGroup'].includes(act) && !a.perms.includes('chatctl')) return 'إيقاف المحادثات غير مسموح لهذا الوكيل';
   if (['linkAdd','linkToggle','linkDel'].includes(act) && !a.perms.includes('links')) return 'ربط العائلات غير مسموح لهذا الوكيل';
+  if (a.parentId && ['subSave','subEdit','subCodeNew','subToggle','subDel','gAddKidOpen','gAddKidSave','guardSavePin'].includes(act)) return 'هذه الصلاحية لولي الأمر فقط';
   if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
@@ -3842,7 +3845,7 @@ const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','
 // الحد الأقصى لعدد أطفال ولي الأمر: خاص بالوكيل إن حُدد، وإلا الإعداد العام (افتراضياً 5)
 const agentMaxKids = a => Number.isFinite(a.maxKids) ? a.maxKids : (S.settings.maxKidsDefault || 5);
 // ولي الأمر: حساب له صلاحية الأطفال، ويظهر في «سجل المستخدمين». أما الوكلاء فيظهرون في «الوكلاء وصلاحياتهم»
-const isGuardian = a => (a.perms || []).includes('kids');
+const isGuardian = a => (a.perms || []).includes('kids') && !a.parentId;
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
   // صفحة إضافة فرد عائلة لولي أمر محدد تحل محل السجل كاملاً
@@ -3872,7 +3875,7 @@ function agentRecordHtml(){
     const perms = AGENT_PERMS.filter(([k]) => (a.perms || []).includes(k));
     // تفاصيل الصلاحيات تظهر تحت الصف عند الضغط على الاسم
     const detail = UI.agOpen === a.id ? `<tr><td colspan="5" style="background:#fff7fa;font-size:13px"><b>الصلاحيات:</b> ${perms.length ? perms.map(([, l]) => `<span class="pill" style="margin:2px">${esc(l)}</span>`).join(' ') : 'لا توجد صلاحيات'}</td></tr>` : '';
-    return `<tr><td><button class="btn ghost sm" style="padding:2px 6px;font-size:12px;white-space:nowrap" data-act="agView" data-id="${esc(a.id)}">👤 ${esc(a.name)}</button></td><td dir="ltr">${esc(a.email || '—')}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td dir="ltr">${esc(fmtUntil(a.until))}</td><td style="white-space:nowrap"><div style="display:flex;flex-direction:column;gap:4px;align-items:center"><button class="btn sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agEdit" data-id="${esc(a.id)}">${UI.agEdit === a.id ? '✖️ إغلاق' : '✏️ تعديل'}</button><button class="btn ghost sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentToggle" data-id="${esc(a.id)}">${a.off ? '✅ تفعيل' : '⛔ إيقاف'}</button><button class="btn sm danger" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء</button></div></td></tr>${detail}`;
+    return `<tr><td><button class="btn ghost sm" style="padding:2px 6px;font-size:12px;white-space:nowrap" data-act="agView" data-id="${esc(a.id)}">👤 ${esc(a.name)}</button>${a.parentId ? `<br><small class="muted">وكيل عن ${esc((agents().find(x => x.id === a.parentId) || {}).name || '—')}</small>` : ''}</td><td dir="ltr">${esc(a.email || '—')}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td dir="ltr">${esc(fmtUntil(a.until))}</td><td style="white-space:nowrap"><div style="display:flex;flex-direction:column;gap:4px;align-items:center"><button class="btn sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agEdit" data-id="${esc(a.id)}">${UI.agEdit === a.id ? '✖️ إغلاق' : '✏️ تعديل'}</button><button class="btn ghost sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentToggle" data-id="${esc(a.id)}">${a.off ? '✅ تفعيل' : '⛔ إيقاف'}</button><button class="btn sm danger" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء</button></div></td></tr>${detail}`;
   }).join('');
   return `<div class="card" style="margin-top:10px"><h4>📋 سجل الوكلاء</h4>
     <p class="muted">الوكلاء المنشأون: <b>${ags.length}</b> • اضغطي على اسم الوكيل لعرض صلاحياته</p>
@@ -4007,18 +4010,46 @@ function renderGuardianHome(){
   }).join('');
   const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span><br>${presenceHtml(c)}</span><button class="btn sm ghost" ${extPlatforms().map(([pid, title]) => agentAllows('kids') ? `<button class="btn sm ${extHidden(c, pid) ? 'ghost' : 'ok'}" data-act="gExtToggle" data-id="${esc(c.id)}" data-p="${pid}">🌐 ${esc(title)}: ${extHidden(c, pid) ? 'مخفية' : 'ظاهرة'}</button>` : '').join('')}<button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
   view().innerHTML = `
-  <div class="row between"><h2>🏠 لوحة ولي الأمر</h2><span class="muted">${esc(a ? a.name : '')}</span></div>
+  <div class="row between"><h2>🏠 لوحة ولي الأمر</h2><span class="muted">${esc(a ? (a.parentId ? a.name + ' (وكيل عن ' + ((agents().find(x => x.id === a.parentId) || {}).name || '—') + ')' : a.name) : '')}</span></div>
   ${alertsHtml()}
   <div class="tiles-grid">${tiles}<button class="big-tile" data-act="gSettings"><span class="em">⚙️</span>إعداداتي</button></div>
   ${tiles ? '' : '<p class="muted center">لا توجد صفحات مسموحة لك، اطلبي من مدير النظام منح الصلاحيات.</p>'}
   <div class="card"><h3>✉️ مراسلة مدير النظام</h3><p class="muted" style="font-size:13px">للملاحظات والمقترحات والشكاوي.</p><label class="f">النوع</label>${subSelect('gaSub')}<textarea id="gaTxt" rows="3" maxlength="500" style="width:100%;margin-top:8px" placeholder="اكتبي رسالتك"></textarea><div class="row" style="margin-top:8px"><button class="btn ok" data-act="gSendAdmin">📨 إرسال</button></div></div>
   <div class="card"><h3>🔑 أطفالي وروابط دخولهم</h3>${kidRows || '<p class="muted">لا يوجد أطفال مسندون إليك.</p>'}</div>
-  ${!a || !a.perms.includes('kids') ? '' : !a.emailOk ? '<p class="muted center" style="margin-top:8px">لإضافة الأطفال فعّلي بريدك أولاً: سجّلي الدخول بالبريد واكتبي الرمز المرسل إليه.</p>' : UI.gAddKid ? `<div class="card"><h3>➕ إضافة طفل</h3>
+  ${a && !a.parentId ? subsHtml(a) : ''}
+  ${!a || !a.perms.includes('kids') || a.parentId ? '' : !a.emailOk ? '<p class="muted center" style="margin-top:8px">لإضافة الأطفال فعّلي بريدك أولاً: سجّلي الدخول بالبريد واكتبي الرمز المرسل إليه.</p>' : UI.gAddKid ? `<div class="card"><h3>➕ إضافة طفل</h3>
     <label class="f">اسم الطفل</label><input id="gkName" autocomplete="off">
     <label class="f" style="margin-top:8px">رمز دخوله (4 أرقام أو أكثر)</label><input id="gkCode" type="password" inputmode="numeric" autocomplete="off">
     <div class="row" style="gap:6px;margin-top:10px"><button class="btn ok sm" data-act="gAddKidSave">💾 حفظ</button><button class="btn ghost sm" data-act="gAddKidCancel">إلغاء</button></div></div>`
     : '<div class="row center" style="margin-top:8px"><button class="btn ghost" data-act="gAddKidOpen">➕ إضافة طفل</button></div>'}
   <div class="row center" style="margin-top:8px"><button class="btn ghost sm" data-act="guardLogout">🚪 خروج</button></div>`;
+}
+// وكلاء باسمي: ولي الأمر يمنح أفراد عائلته دخولاً برمز، بصلاحيات وأطفال لا تتجاوز ما يملكه هو
+// الوكيل الفرعي يُخزَّن بحقل parentId، وصلاحياته وأطفاله تُقيَّد دائماً بما يملكه ولي الأمر الآن
+const ownSub = d => { const o = currentAgent(); const s = agents().find(x => x.id === d.id); return o && s && s.parentId === o.id ? s : null; };
+function subsHtml(owner){
+  const mine = agents().filter(x => x.parentId === owner.id);
+  const permOpts = AGENT_PERMS.filter(([k]) => owner.perms.includes(k));
+  const kidOpts = owner.kids.map(id => CH(id)).filter(Boolean);
+  const rows = mine.map(s => {
+    const open = UI.subEditFor === s.id;
+    const st = s.off ? 'موقوف' : isActive(s) ? 'نشط' : 'منتهٍ';
+    const editor = open ? `<div style="margin-top:8px;padding:8px;border:1px dashed #f0b6cc;border-radius:10px">
+      <b style="font-size:13px">الصلاحيات (ضمن صلاحياتك):</b>
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:4px">${permOpts.map(([k, l]) => `<label class="chk"><input type="checkbox" data-change="subPerm" data-id="${esc(s.id)}" data-p="${k}" ${s.perms.includes(k) ? 'checked' : ''}> ${esc(l)}</label>`).join('') || '<span class="muted">لا توجد صلاحيات</span>'}</div>
+      <b style="font-size:13px;display:block;margin-top:8px">الأطفال:</b>
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:4px">${kidOpts.map(c => `<label class="chk"><input type="checkbox" data-change="subKid" data-id="${esc(s.id)}" data-k="${esc(c.id)}" ${s.kids.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('') || '<span class="muted">لا يوجد أطفال</span>'}</div></div>` : '';
+    return `<div style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><div class="row between" style="gap:6px;flex-wrap:wrap"><b>👤 ${esc(s.name)}</b><span class="pill">${st}</span></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" data-act="subEdit" data-id="${esc(s.id)}">${open ? '✖️ إغلاق' : '✏️ تعديل'}</button><button class="btn sm ghost" data-act="subCodeNew" data-id="${esc(s.id)}">🔑 كود جديد</button><button class="btn sm ghost" data-act="subToggle" data-id="${esc(s.id)}">${s.off ? '✅ تفعيل' : '⛔ إيقاف'}</button><button class="btn sm danger" data-act="subDel" data-id="${esc(s.id)}">🗑️ حذف</button></div>${editor}</div>`;
+  }).join('');
+  const addForm = `<div class="card" style="margin-top:10px"><h4>➕ وكيل جديد باسمي</h4>
+    <label class="f">الاسم</label><input id="subName" maxlength="40" placeholder="مثال: الأم" autocomplete="off">
+    <label class="f" style="margin-top:6px">الصلاحيات (ضمن صلاحياتك)</label>
+    <div class="row" style="flex-wrap:wrap;gap:6px">${permOpts.map(([k, l]) => `<label class="chk"><input type="checkbox" class="subNewPerm" value="${k}"> ${esc(l)}</label>`).join('') || '<span class="muted">لا توجد صلاحيات</span>'}</div>
+    <label class="f" style="margin-top:6px">الأطفال</label>
+    <div class="row" style="flex-wrap:wrap;gap:6px">${kidOpts.map(c => `<label class="chk"><input type="checkbox" class="subNewKid" value="${esc(c.id)}"> ${esc(c.name)}</label>`).join('') || '<span class="muted">لا يوجد أطفال مسندون إليك</span>'}</div>
+    <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="subSave">💾 إنشاء وإصدار الكود</button></div></div>`;
+  return `<div class="card"><h3>👪 وكلاء باسمي</h3><p class="muted" style="font-size:13px">يدخل الوكيل برمزه ويرى ما منحتِه له فقط، ولا يتجاوز صلاحياتك ولا أطفالك.</p>${rows || '<p class="muted">لا يوجد وكلاء باسمك بعد</p>'}${addForm}</div>`;
 }
 // إعدادات ولي الأمر في صفحته: تغيير رمز دخوله فقط
 function renderGuardianSettings(){
@@ -5027,6 +5058,7 @@ const ACT = {
     }
     if (!a.codeOn) { msg.textContent = 'هذا الكود ملغى، راجعي مدير النظام'; return; }
     if (a.off) { msg.textContent = 'هذا الحساب موقوف، راجعي مدير النظام'; return; }
+    if (a.parentId) { const p = agents().find(x => x.id === a.parentId); if (!p || p.off || !isActive(p)) { msg.textContent = 'ولي الأمر موقوف أو منتهٍ، راجعي مدير النظام'; return; } }
     if (!isActive(a)) { msg.textContent = 'انتهت صلاحية هذا الحساب، راجعي مدير النظام'; return; }
     UI.loginFails = 0; enterParent('guardian', a);
   },
@@ -5623,6 +5655,29 @@ const ACT = {
   agentTpl: d => { const a = agents().find(x => x.id === d.id), t = AGENT_TEMPLATES[d.t]; if (!a || !t) return; a.perms = t.perms.slice(); save(); toast('تم تطبيق القالب ✅'); renderParent(); },
   agentDel: d => { S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('أُلغيت الوكالة'); renderParent(); },
   // سجل الوكلاء: الضغط على الاسم يعرض صلاحياته، وزر التعديل يفتح بطاقة الوكيل أسفل السجل
+  // وكلاء باسمي: إنشاء وكيل فرعي برمز، وتعديله وإيقافه وحذفه (ولي الأمر فقط)
+  subSave: async () => {
+    const owner = currentAgent(); if (!owner || owner.parentId) return;
+    const name = (($('#subName') || {}).value || '').trim();
+    const perms = [...document.querySelectorAll('.subNewPerm:checked')].map(x => x.value).filter(k => owner.perms.includes(k));
+    const kids = [...document.querySelectorAll('.subNewKid:checked')].map(x => x.value).filter(id => owner.kids.includes(id));
+    if (!name) return toast('اكتبي اسم الوكيل');
+    if (agents().some(a => normName(a.name) === normName(name))) return toast('يوجد وكيل بهذا الاسم');
+    const code = genAccessCode();
+    agents().push({ id: 'ag' + Date.now().toString(36), name, parentId: owner.id, codeHash: hashPin(code), codeOn: true, perms, kids, until: '', off: false });
+    save();
+    await modal('🔑 كود دخول الوكيل', `<div dir="ltr" style="font-size:26px;letter-spacing:4px;text-align:center;font-weight:bold">${esc(code)}</div><p class="muted center">انسخيه الآن، لن يُعرض مرة أخرى. إصدار كود جديد يلغي القديم.</p>`, [{label:'تم', val:1}]);
+    renderGuardianHome();
+  },
+  subEdit: d => { UI.subEditFor = UI.subEditFor === d.id ? null : d.id; renderGuardianHome(); },
+  subCodeNew: async d => {
+    const s = ownSub(d); if (!s) return;
+    const code = genAccessCode(); s.codeHash = hashPin(code); s.codeOn = true; save();
+    await modal('🔑 كود دخول الوكيل', `<div dir="ltr" style="font-size:26px;letter-spacing:4px;text-align:center;font-weight:bold">${esc(code)}</div><p class="muted center">انسخيه الآن، لن يُعرض مرة أخرى. إصدار كود جديد يلغي القديم.</p>`, [{label:'تم', val:1}]);
+    renderGuardianHome();
+  },
+  subToggle: d => { const s = ownSub(d); if (!s) return; s.off = !s.off; save(); toast(s.off ? 'أُوقف الوكيل' : 'تم تفعيل الوكيل ✅'); renderGuardianHome(); },
+  subDel: async d => { const s = ownSub(d); if (!s) return; if (!await confirmBox('حذف هذا الوكيل؟', 'سيفقد دخوله فوراً')) return; S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('حُذف الوكيل'); renderGuardianHome(); },
   agView: d => { UI.agOpen = UI.agOpen === d.id ? null : d.id; renderParent(); },
   agEdit: d => { UI.agEdit = UI.agEdit === d.id ? null : d.id; renderParent(); if (UI.agEdit) document.querySelector('#agEditBox')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
   ptab: d => { UI.ptab = d.t; UI.editWord = null; UI.kidPage = null; UI.pMenuOpen = false; renderParent(); },
@@ -5959,6 +6014,8 @@ const CHANGE = {
     save(); toast(t.checked ? 'ظاهر للطفل ✅' : 'مخفي عن الطفل');
   },
   // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
+  subPerm: t => { const s = ownSub(t.dataset); if (!s) return; const p = t.dataset.p; s.perms = s.perms.filter(x => x !== p); if (t.checked) s.perms.push(p); save(); toast('تم الحفظ ✅'); },
+  subKid: t => { const s = ownSub(t.dataset); if (!s) return; const k = t.dataset.k; s.kids = s.kids.filter(x => x !== k); if (t.checked) s.kids.push(k); save(); toast('تم الحفظ ✅'); },
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
   agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
   // حد الأطفال لولي أمر بعينه؛ الحقل الفارغ يعيده إلى الإعداد العام
