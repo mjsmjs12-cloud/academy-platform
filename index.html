@@ -3799,8 +3799,11 @@ const agentMaxKids = a => Number.isFinite(a.maxKids) ? a.maxKids : (S.settings.m
 const isGuardian = a => (a.perms || []).includes('kids');
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
+  // صفحة إضافة فرد عائلة لولي أمر محدد تحل محل السجل كاملاً
+  const openFor = UI.gmKidFor ? agents().find(a => a.id === UI.gmKidFor && isGuardian(a)) : null;
+  if (openFor) return kidAddPageHtml(openFor);
   const ags = agents().filter(isGuardian), kids = S.children;
-  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><input data-gkn="${esc(a.id)}" maxlength="40" autocomplete="off" autocapitalize="off" placeholder="اسم الطفل" style="width:150px"><input data-gkc="${esc(a.id)}" type="password" inputmode="numeric" autocomplete="new-password" placeholder="رمز الطفل (4 خانات على الأقل)" style="width:200px"><button class="btn ok sm" data-act="gmKidAdd" data-id="${esc(a.id)}">➕ إضافة طفل لهذا الولي</button></div></td></tr>`; }).join('');
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}<br><button class="btn ok sm" style="margin-top:4px" data-act="gmKidOpen" data-id="${esc(a.id)}">➕ إضافة فرد عائلة</button></td></tr>`; }).join('');
   const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
   return `<div class="card"><h3>📋 سجل المستخدمين</h3>
     <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
@@ -5447,8 +5450,8 @@ const ACT = {
   // إضافة طفل جديد مباشرة إلى ولي أمر من سجل المستخدمين، بنفس شروط إضافة الطفل من لوحة ولي الأمر
   gmKidAdd: d => {
     const a = agents().find(x => x.id === d.id); if (!a) return toast('ولي الأمر غير موجود');
-    const name = (((document.querySelector(`[data-gkn="${d.id}"]`)) || {}).value || '').trim();
-    const code = (((document.querySelector(`[data-gkc="${d.id}"]`)) || {}).value || '').trim();
+    const name = (((document.querySelector('#gkName')) || {}).value || '').trim();
+    const code = (((document.querySelector('#gkCode')) || {}).value || '').trim();
     if (!name) return toast('اكتبي اسم الطفل');
     if (S.children.some(c => normName(c.name) === normName(name))) return toast('يوجد طفل بهذا الاسم');
     if (code.length < 4) return toast('الرمز 4 خانات على الأقل');
@@ -5456,9 +5459,12 @@ const ACT = {
     const h = hashPin(code);
     const id = uid();
     S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
-    a.kids.push(id); save(); toast('تمت إضافة الطفل ✅');
+    a.kids.push(id); UI.gmKidFor = null; save(); toast('تمت إضافة الطفل ✅');
     const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
   },
+  // فتح صفحة إضافة فرد عائلة لولي أمر، والرجوع منها إلى السجل
+  gmKidOpen: d => { UI.gmKidFor = d.id; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmKidCancel: () => { UI.gmKidFor = null; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
@@ -6343,6 +6349,13 @@ function lessonsAdminHtml(c){
 }
 // فهرس صفحات حقيبة بابا أحمد (https://ajh.sa/): لكل صفحة نسخة داخل التطبيق إن وُجدت، وإلا فتحها على الإنترنت من الموقع
 const HAKIBA_URL = 'https://ajh.sa/';
+// صفحة إضافة فرد عائلة لولي أمر محدد: الاسم والرمز فقط، ويُسند الفرد إلى ولي الأمر تلقائياً
+function kidAddPageHtml(a){
+  return `<div class="card"><h3>➕ إضافة فرد عائلة</h3><p class="muted">لولي الأمر: <b>${esc(a.name)}</b></p>
+    <label class="f">اسم الطفل</label><input id="gkName" maxlength="40" autocomplete="off" autocapitalize="off" placeholder="اكتبي اسم الطفل">
+    <label class="f" style="margin-top:6px">رمز الطفل (4 خانات على الأقل)</label><input id="gkCode" type="password" inputmode="numeric" autocomplete="new-password">
+    <div class="row" style="margin-top:10px;gap:6px"><button class="btn ok sm" data-act="gmKidAdd" data-id="${esc(a.id)}">💾 حفظ</button><button class="btn ghost sm" data-act="gmKidCancel">← رجوع</button></div></div>`;
+}
 // زر إضافة طفل، أو نموذج الاسم فقط عند فتحه (بلا بريد أو اسم افتراضي)
 function addKidHtml(){
   if (!UI.addKidOpen) return '<div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة طفل/طفل</button></div>';
