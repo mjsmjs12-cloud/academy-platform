@@ -2629,7 +2629,9 @@ async function recordVoice(onSaved, onChange){
     try {
       await idbPut(vk, blob);
       onSaved(vk); save(); toast('تم إرسال الرسالة الصوتية 🎙️');
-      voiceUpload(vk, blob).then(ok => { if (!ok && S.cloud && S.cloud.f) toast('تعذّر رفع الصوت، لن يسمعه الجهاز الآخر'); })
+      // بدون المزامنة السحابية يبقى الصوت على هذا الجهاز فقط، ونُبلغ بذلك بدل الصمت
+      if (!S.cloud || !S.cloud.f) toast('الصوت محفوظ على هذا الجهاز فقط، فعّلي المزامنة السحابية ليصل إلى الأجهزة الأخرى');
+      else voiceUpload(vk, blob).then(ok => { if (!ok) toast('تعذّر رفع الصوت، لن يسمعه الجهاز الآخر'); })
         .catch(() => toast('تعذّر رفع الصوت، لن يسمعه الجهاز الآخر'));
     } catch (e) { toast('تعذّر حفظ الرسالة الصوتية'); }
     onChange();
@@ -3806,7 +3808,6 @@ function userRecordHtml(){
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th></tr>${gRows || '<tr><td colspan="5" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
     <div class="card" style="margin-top:10px"><h4>➕ إضافة ولي أمر يدوياً</h4>
       <label class="f">الاسم</label><input id="gmName" maxlength="40" placeholder="اسم ولي الأمر">
-      <label class="f" style="margin-top:6px">البريد الإلكتروني (اختياري)</label><input id="gmEmail" type="email" inputmode="email" placeholder="name@example.com">
       <label class="f" style="margin-top:6px">الرمز الخاص (4 أرقام على الأقل)</label><input id="gmCode" type="password" inputmode="numeric" autocomplete="off">
       <label class="f" style="margin-top:6px">الأطفال المسندون</label><div class="row" style="flex-wrap:wrap;gap:6px">${kids.map(c => `<label class="chk"><input type="checkbox" class="gmKid" value="${esc(c.id)}"> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
       <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="guardManualAdd">💾 إضافة ولي الأمر</button></div></div>
@@ -4264,7 +4265,7 @@ const PARENT = {
   },
   kids(){
     const open = UI.kidPage ? S.children.find(c => c.id === UI.kidPage) : null;
-    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small><small style="display:block">${presenceHtml(c)}</small></button>`).join('')}</div><div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة طفل/طفل</button></div>`;
+    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small><small style="display:block">${presenceHtml(c)}</small></button>`).join('')}</div>${addKidHtml()}`;
     const sec = KID_SECS.some(([k]) => k === UI.kidSec) ? UI.kidSec : 'profile';
     return `<div class="row" style="margin-bottom:8px"><button class="btn ghost" data-act="closeKid">← قائمة الأطفال</button></div>
     ${kidStatusHtml(open)}
@@ -5432,7 +5433,8 @@ const ACT = {
   },
   // إضافة ولي أمر يدوياً من سجل المستخدمين: حساب بصلاحيات ولي أمر كاملة، ورمز فريد
   guardManualAdd: () => {
-    const name = (((document.querySelector('#gmName')) || {}).value || '').trim(), email = (((document.querySelector('#gmEmail')) || {}).value || '').trim().toLowerCase();
+    // لا بريد في الإضافة اليدوية: يسجّل ولي الأمر بريده بنفسه عند دخوله بالبريد
+    const name = (((document.querySelector('#gmName')) || {}).value || '').trim(), email = '';
     const pin = (((document.querySelector('#gmCode')) || {}).value || '').trim();
     if (!name) return toast('اكتبي اسم ولي الأمر');
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('البريد الإلكتروني غير صحيح');
@@ -5695,7 +5697,18 @@ const ACT = {
   inboxRead: d => { const m = (S.inbox || []).find(x => x.id === d.id); if (m) { m.read = true; save(); renderParent(); } },
   inboxDel: d => { S.inbox = (S.inbox || []).filter(x => x.id !== d.id); save(); renderParent(); },
   reactivateKid: d => { const c = CH(d.id); if (!c) return; c.frozen = false; c.lastLogin = Date.now(); (S.inbox || []).forEach(m => { if (m.cid === c.id) m.read = true; }); save(); toast('تمت إعادة تفعيل الحساب ✅'); renderParent(); },
-  addKid: () => { const id = uid(); S.children.push(Object.assign(newChild(id, 'اسم جديد', '⭐', '#3aa0d8'), {lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())})); const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id); save(); renderParent(); },
+  // إضافة طفل: تفتح نموذج الاسم فقط، بلا اسم افتراضي
+  addKid: () => { UI.addKidOpen = true; UI.kidPage = null; renderParent(); },
+  addKidCancel: () => { UI.addKidOpen = false; renderParent(); },
+  addKidSave: () => {
+    const name = (($('#nkName') || {}).value || '').trim();
+    if (!name) return toast('اكتبي اسم الطفل');
+    if (S.children.some(c => normName(c.name) === normName(name))) return toast('يوجد طفل بهذا الاسم');
+    const id = uid();
+    S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
+    const me = UI.parentRole === 'guardian' ? currentAgent() : null; if (me) me.kids.push(id);
+    UI.addKidOpen = false; save(); toast('تمت إضافة الطفل ✅'); renderParent();
+  },
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
     exportBackup(); (CH(d.id).pages || []).forEach(p => idbDel('page_' + p.id).catch(() => {})); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
@@ -6335,6 +6348,12 @@ function lessonsAdminHtml(c){
 }
 // فهرس صفحات حقيبة بابا أحمد (https://ajh.sa/): لكل صفحة نسخة داخل التطبيق إن وُجدت، وإلا فتحها على الإنترنت من الموقع
 const HAKIBA_URL = 'https://ajh.sa/';
+// زر إضافة طفل، أو نموذج الاسم فقط عند فتحه (بلا بريد أو اسم افتراضي)
+function addKidHtml(){
+  if (!UI.addKidOpen) return '<div class="center" style="margin-bottom:12px"><button class="btn ghost" data-act="addKid">➕ إضافة طفل/طفل</button></div>';
+  return `<div class="card" style="margin-top:10px"><h3>➕ طفل جديد</h3><label class="f">اسم الطفل</label><input id="nkName" maxlength="40" autocomplete="off" placeholder="اكتبي اسم الطفل">
+    <div class="row" style="margin-top:8px;gap:6px"><button class="btn ok sm" data-act="addKidSave">💾 حفظ</button><button class="btn ghost sm" data-act="addKidCancel">إلغاء</button></div></div>`;
+}
 // المفضلة أعلى الشاشة (مكان المنصات سابقاً): المعلمة الذكية ودرس اليوم مفضلان افتراضياً، ويضيف الطفل بطاقات المنصات بالنجمة
 const FAV_INT_ORDER = ['smart', 'daily'];
 const favIntOf = c => Array.isArray(c.favInt) ? c.favInt : FAV_INT_ORDER;
