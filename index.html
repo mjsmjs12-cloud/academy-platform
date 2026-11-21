@@ -791,6 +791,7 @@ async function driveDownload(id){ return (await gfetch(`https://www.googleapis.c
 
 // ===== الرابط السحابي: بيانات الأكاديمية على خادم Vercel، ليدخل الطفل من أي جهاز عبر الرابط =====
 const CLOUD_API = '/api/family', CLOUD_MAX = 900 * 1024;
+const JOIN_API = '/api/join'; // رمز دخول قصير للموقع يربط الجهاز بالعائلة
 let CLOUD_TIMER = null, CLOUD_POLL = null, CLOUD_LISTENING = false;
 const cloudLink = f => location.origin + location.pathname + '?f=' + f;
 // المزامنة بالإصدارات (_v) لا بتوقيت الجهاز: ساعات الأجهزة المختلفة لا تؤثر فيها
@@ -897,9 +898,43 @@ async function cloudPullFromLink(){
   d.cloud = {f};
   return d;
 }
+// طلبات رمز الدخول للموقع
+async function joinApi(body){
+  const r = await fetch(JOIN_API, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'تعذّر الاتصال بالخادم');
+  return d;
+}
+// يربط الجهاز بالعائلة برمز الدخول: يُحمَّل بيانات العائلة كما يفعل الرابط الكامل
+async function joinWithCode(code){
+  const d = await joinApi({ action: 'join', code });
+  const r = await fetch(CLOUD_API + '?f=' + encodeURIComponent(d.f));
+  if (!r.ok) throw new Error('تعذّر تحميل بيانات الموقع');
+  const data = migrate(JSON.parse(await r.text()));
+  data.cloud = { f: d.f };
+  S = data; persistNow(JSON.stringify(S)); setCloudV(data._v || 0, d.f); CLOUD_SNAP = cloudSnapshot();
+  startCloudPolling();
+}
+// شاشة الدخول للجهاز غير المرتبط: خانة رمز الدخول للموقع
+function joinBoxHtml(){
+  if (S.cloud && S.cloud.f) return '';
+  return `<div class="card" style="max-width:420px;margin:12px auto">
+    <h3>🔗 دخول الجهاز لأول مرة</h3>
+    <p class="muted" style="font-size:13px">اكتبي رمز الدخول الذي أعطاكِ إياه مدير النظام. يُكتب مرة واحدة على كل جهاز.</p>
+    <label class="f">رمز الدخول</label><input id="joinCode" autocomplete="off" style="text-transform:uppercase" placeholder="xxxxx-xxxxx">
+    <div class="row center" style="margin-top:10px"><button class="btn ok sm" data-act="joinSubmit">🔓 دخول الجهاز</button></div>
+    <p id="joinmsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>`;
+}
+// بطاقة المدير: إنشاء رمز الدخول للموقع وإلغاؤه
+function joinCodeAdminHtml(){
+  if (!S.cloud || !S.cloud.f) return '';
+  return `<div class="card" style="border-right:6px solid #2f7fd8"><h3>🔑 رمز الدخول للموقع</h3>
+    <p class="muted" style="font-size:13px">يكفي أن يكتب الجهاز هذا الرمز مرة واحدة مع عنوان الموقع. إنشاء رمز جديد يلغي السابق.</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="joinCodeNew">🔑 إنشاء رمز جديد</button><button class="btn sm danger" data-act="joinCodeRevoke">⛔ إلغاء الرمز</button></div></div>`;
+}
 function renderCloudSettings(){
   const f = S.cloud && S.cloud.f;
-  return `<div class="card" style="border-right:6px solid #2f7fd8"><h3>🔗 رابط الدخول من أي جهاز</h3>${f ? `<p class="muted">الرابط جاهز. تُحفظ بيانات الأكاديمية على الخادم، ويفتح الطفل الرابط من أي جهاز.</p><input id="cloudLink" readonly value="${esc(cloudLink(f))}" style="width:100%;direction:ltr"><div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="cloudCopy">📋 نسخ الرابط</button><button class="btn sm ghost" data-act="cloudSync">🔄 رفع الآن</button><button class="btn sm danger" data-act="cloudStop">إيقاف الرابط</button></div>` : `<p class="muted">أنشئي رابطاً سرياً لتدخل الطفل من جهاز آخر. لا تشاركيه إلا معهم.</p><button class="btn sm ok" data-act="cloudCreate">إنشاء الرابط</button>`}</div>`;
+  return `<div class="card" style="border-right:6px solid #2f7fd8"><h3>🔗 رابط الدخول من أي جهاز</h3>${f ? `<p class="muted">الرابط جاهز. تُحفظ بيانات الأكاديمية على الخادم، ويفتح الطفل الرابط من أي جهاز.</p><input id="cloudLink" readonly value="${esc(cloudLink(f))}" style="width:100%;direction:ltr"><div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn sm ok" data-act="cloudCopy">📋 نسخ الرابط</button><button class="btn sm ghost" data-act="cloudSync">🔄 رفع الآن</button><button class="btn sm danger" data-act="cloudStop">إيقاف الرابط</button></div>` : `<p class="muted">أنشئي رابطاً سرياً لتدخل الطفل من جهاز آخر. لا تشاركيه إلا معهم.</p><button class="btn sm ok" data-act="cloudCreate">إنشاء الرابط</button>`}</div>${joinCodeAdminHtml()}`;
 }
 // قسم ربط Google Drive داخل صفحة الإعدادات
 function renderDriveSettings(){
@@ -2420,13 +2455,22 @@ function emailLoginHtml(){
   if (!S.cloud || !S.cloud.f) return '';
   const loginBox = S.settings.emailLogin === 'on' ? `<div class="emailbox" style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12)">
     <h4 style="margin:0 0 6px">📧 دخول ولي الأمر بالبريد</h4>
-    <p class="muted" style="font-size:12px;margin:0 0 6px">بريد مسجّل يدخل مباشرة. بريد جديد يُنشأ له حساب بعد تأكيد الرمز.</p>
-    <label class="f">البريد</label><input id="lemail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
-    <label class="f" style="margin-top:6px">اسم ولي الأمر (للحساب الجديد فقط)</label><input id="lname" autocomplete="off">
-    <div class="row center" style="margin-top:8px"><button class="btn sm" data-act="emailSend">🔓 دخول (يُرسل الرمز تلقائياً)</button></div>
-    <div id="emailStep2" hidden><label class="f" style="margin-top:8px">الرمز المكوّن من 6 أرقام</label><input id="lotp" inputmode="numeric" autocomplete="one-time-code" maxlength="6"><div class="row center" style="margin-top:8px"><button class="btn ok sm" data-act="emailVerify">🔓 دخول بالرمز</button></div></div>
+    <p class="muted" style="font-size:12px;margin:0 0 6px">ليس لديك حساب؟ اكتبي بريدك واضغطي «دخول» لتلقي رمز التأكيد.</p>
+    <label class="f">البريد الإلكتروني</label><input id="lemail" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com">
+    <label class="f" style="margin-top:6px">كلمة المرور</label><input id="lpass" type="password" autocomplete="current-password" placeholder="6 أحرف على الأقل">
+    <div class="row center" style="margin-top:8px"><button class="btn sm" data-act="emailSend">🔓 دخول</button></div>
+    <p class="center" style="margin:6px 0 0"><button class="btn ghost sm" data-act="emailForgot">نسيت كلمة المرور؟</button></p>
+    <div id="emailStep2" hidden style="margin-top:10px;text-align:center">
+      <h4 style="margin:0 0 4px">تأكيد الهوية</h4>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">أدخل الرمز المكوّن من 6 أرقام المرسل إلى بريدك الإلكتروني</p>
+      <div dir="ltr" style="display:flex;gap:8px;justify-content:center">${[0, 1, 2, 3, 4, 5].map(() => '<input class="otp" inputmode="numeric" autocomplete="one-time-code" style="width:44px;height:50px;text-align:center;font-size:20px;padding:0">').join('')}</div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0"><span id="otpTimer"></span> <button class="btn ghost sm" id="otpResend" data-act="emailResend" disabled>إرسال مرة أخرى</button></p>
+      <label class="f" style="margin-top:8px">كلمة المرور الجديدة (6 أحرف على الأقل)</label><input id="lnewpass" type="password" autocomplete="new-password">
+      <label class="f" style="margin-top:6px">اسم ولي الأمر (للحساب الجديد فقط)</label><input id="lnewname" autocomplete="off">
+      <div class="row center" style="margin-top:10px"><button class="btn ok sm" data-act="emailVerify">تأكيد والدخول</button></div>
+      <p class="center" style="margin:6px 0 0"><button class="btn ghost sm" data-act="emailChange">تغيير البريد الإلكتروني</button></p>
+    </div>
     <p id="emsg" class="muted center" style="min-height:20px;margin-top:6px"></p></div>` : '';
-  // التسجيل بالبريد صار جزءاً من دخول ولي الأمر نفسه (loginBox)
   return loginBox;
 }
 // شاشة الدخول: الاسم الأول + الرمز الخاص بالطفل فقط (بدون قائمة الأطفال)
@@ -2448,6 +2492,7 @@ function renderLogin(){
   CUR_CID = null; applyTheme();
   view().innerHTML = `
   <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية أبو نصره الذكية</h1><div class="muted">أدخلي الاسم الأول والرمز الخاص بك</div></div>
+  ${joinBoxHtml()}
   <div class="card" style="max-width:420px;margin:12px auto">
     <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="اسمك الأول كما هو في ملفك">
     <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
@@ -4537,6 +4582,52 @@ async function copyText(t){
 }
 
 // ===== الأحداث =====
+// خانات الرمز الستة: ينتقل التركيز تلقائياً، ويُلصق الرمز كاملاً من أي خانة
+const otpCode = () => [...document.querySelectorAll('.otp')].map(i => i.value.trim()).join('');
+document.addEventListener('input', e => {
+  const t = e.target; if (!t.classList || !t.classList.contains('otp')) return;
+  const v = t.value.replace(/\D/g, '');
+  if (v.length > 1) { const boxes = [...document.querySelectorAll('.otp')]; [...v.slice(0, 6)].forEach((d, i) => { boxes[i].value = d; }); boxes[Math.min(v.length, 6) - 1].focus(); return; }
+  t.value = v;
+  if (v && t.nextElementSibling && t.nextElementSibling.classList.contains('otp')) t.nextElementSibling.focus();
+});
+document.addEventListener('keydown', e => {
+  const t = e.target; if (!t.classList || !t.classList.contains('otp') || e.key !== 'Backspace' || t.value) return;
+  const prev = t.previousElementSibling; if (prev && prev.classList.contains('otp')) { prev.value = ''; prev.focus(); }
+});
+// مؤقت إعادة الإرسال: دقيقة واحدة
+let OTP_TIMER = null;
+function startOtpTimer(){
+  clearInterval(OTP_TIMER); const end = Date.now() + 60000;
+  const tick = () => {
+    const t = $('#otpTimer'), b = $('#otpResend'); if (!t || !b) return clearInterval(OTP_TIMER);
+    const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+    t.textContent = left ? 'إعادة الإرسال خلال ' + left + ' ثانية' : '';
+    b.disabled = left > 0;
+    if (!left) clearInterval(OTP_TIMER);
+  };
+  tick(); OTP_TIMER = setInterval(tick, 1000);
+}
+// بدء دخول ولي الأمر بالبريد: force=true يتجاوز كلمة المرور (نسيت كلمة المرور)
+async function emailStart(force){
+  const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase(), pw = (($('#lpass') || {}).value || '');
+  if (!S.cloud || !S.cloud.f) { msg.textContent = 'هذا الدخول يحتاج الرابط المحفوظ'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'اكتبي بريداً صحيحاً'; return; }
+  const a = agents().find(x => String(x.email || '').trim().toLowerCase() === email);
+  if (!force && a && a.pwHash) {
+    if (!pw) { msg.textContent = 'اكتبي كلمة المرور'; return; }
+    if (await sha256hex(email + '|' + pw) !== a.pwHash) { msg.textContent = 'كلمة المرور غير صحيحة. استعيديها بزر «نسيت كلمة المرور؟»'; return; }
+    if (!isActive(a)) { msg.textContent = 'انتهت صلاحية هذا الحساب، راجعي مدير النظام'; return; }
+    UI.loginFails = 0; return enterParent('guardian', a);
+  }
+  msg.textContent = 'جارٍ الإرسال...';
+  try {
+    await emailApi('send', { f: S.cloud.f, email });
+    $('#emailStep2').hidden = false; startOtpTimer();
+    const first = document.querySelector('.otp'); if (first) first.focus();
+    msg.textContent = 'أُرسل الرمز إلى البريد. صلاحيته 10 دقائق.';
+  } catch (e) { msg.textContent = e.message; }
+}
 const ACT = {
   home: () => (UI.kid ? ACT.back() : (UI.parentOk && UI.parentRole === 'admin' ? go(renderAdminHome) : UI.parentOk && UI.parentRole === 'guardian' ? go(renderGuardianHome) : go(renderHome))),
   // دخول ولي الأمر بحسابه: الاسم والرمز الخاص كما أعدّهما مدير النظام
@@ -4623,44 +4714,39 @@ const ACT = {
     recordLogin(c); save();
     UI.loginFails = 0; UI.parentOk = false; UI.kid = c.id; go(() => renderChild(c.id));
   },
-  emailSend: async () => {
+  // دخول ولي الأمر بالبريد وكلمة المرور: الحساب المسجل بكلمة مرور يدخل مباشرة، وغير ذلك يُرسل له رمز تأكيد
+  emailSend: async () => { await emailStart(false); },
+  emailForgot: async () => { await emailStart(true); },
+  emailResend: async () => {
     const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase();
-    if (!S.cloud || !S.cloud.f) { msg.textContent = 'هذا الدخول يحتاج الرابط المحفوظ'; return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'اكتبي بريداً صحيحاً'; return; }
-    msg.textContent = 'جارٍ الإرسال...';
-    try {
-      const d = await emailApi('send', { f: S.cloud.f, email });
-      $('#emailStep2').hidden = false;
-      msg.textContent = d.ok ? 'أُرسل الرمز إلى البريد إن كان مسجلاً. صلاحيته 10 دقائق.' : '';
-    } catch (e) { msg.textContent = e.message; }
+    try { await emailApi('send', { f: S.cloud.f, email }); startOtpTimer(); msg.textContent = 'أُعيد إرسال الرمز.'; }
+    catch (e) { msg.textContent = e.message; }
+  },
+  emailChange: () => {
+    $('#emailStep2').hidden = true; document.querySelectorAll('.otp').forEach(i => { i.value = ''; });
+    clearInterval(OTP_TIMER); $('#emsg').textContent = ''; $('#lemail').focus();
   },
   emailVerify: async () => {
-    const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase(), code = (($('#lotp') || {}).value || '').trim();
+    const msg = $('#emsg'), email = (($('#lemail') || {}).value || '').trim().toLowerCase(), code = otpCode(), pw = (($('#lnewpass') || {}).value || '');
+    if (pw.length < 6) { msg.textContent = 'اكتبي كلمة المرور (6 أحرف على الأقل)'; return; }
     try {
       const d = await emailApi('verify', { f: S.cloud.f, email, code });
-      // بريد جديد: يُنشأ حساب ولي الأمر ويدخل مباشرة، بالاسم المكتوب
+      const h = await sha256hex(email + '|' + pw);
+      // حساب جديد: يُنشأ لولي الأمر باسمه وكلمة مروره
       if (d.reg) {
-        const name = (($('#lname') || {}).value || '').trim();
+        const name = (($('#lnewname') || {}).value || '').trim();
         if (!name) throw new Error('اكتبي اسم ولي الأمر لإنشاء الحساب');
         if (agents().some(a => normName(a.name) === normName(name))) throw new Error('يوجد ولي أمر بهذا الاسم، راجعي مدير النظام');
-        const na = { id: 'ag' + Date.now().toString(36), name, email, perms: ['reports', 'kids'], until: '', kids: [], off: false, emailOk: true };
+        const na = { id: 'ag' + Date.now().toString(36), name, email, perms: ['reports', 'kids'], until: '', kids: [], off: false, emailOk: true, pwHash: h };
         agents().push(na); save(); UI.loginFails = 0; return enterParent('guardian', na);
       }
-      // بريد ولي أمر: يدخل إلى لوحته مباشرة إن كان حسابه مفعّلاً
+      // حساب موجود: تُحفظ كلمة المرور الجديدة (تعيين أول مرة أو استعادة)
       if (d.agentId) {
         const a = agents().find(x => x.id === d.agentId);
         if (!a || !isActive(a)) throw new Error('هذا الحساب موقوف أو منتهٍ، راجعي مدير النظام');
-        a.emailOk = true; save(); // التحقق بالرمز يفعّل بريد ولي الأمر مرة واحدة
-        UI.loginFails = 0;
-        // استعادة الرمز: بعد التحقق من البريد تُفتح شاشة تغيير الرمز مباشرة
-        if (UI.forgotPin) { UI.forgotPin = false; enterParent('guardian', a); return go(renderGuardianSettings); }
-        return enterParent('guardian', a);
+        a.pwHash = h; a.emailOk = true; save(); UI.loginFails = 0; return enterParent('guardian', a);
       }
-      const c = S.children.find(k => k.id === d.childId);
-      if (!c) throw new Error('الملف غير موجود');
-      if (isFrozenNow(c)) { msg.textContent = 'الحساب مجمّد لعدم الدخول منذ 3 أشهر'; return; }
-      recordLogin(c); save();
-      UI.parentOk = false; UI.kid = c.id; NAV.length = 0; go(() => renderChild(c.id));
+      throw new Error('تعذّر تأكيد البريد');
     } catch (e) { msg.textContent = e.message; }
   },
   // تسجيل ولي أمر جديد بالبريد: يُنشأ حسابه مفعّلاً، ويُسند إليه الأطفال من مدير النظام
@@ -5125,6 +5211,26 @@ const ACT = {
     if (parts.length < 4 || parts[0].toLowerCase() !== compCode(C)) return toast('رمز النتيجة لا يخص هذا التحدي');
     if (raw === C.resultCode) return toast('هذا رمز نتيجتكِ أنتِ؛ الصقي رمز المتسابقة الأخرى');
     compFinish([C.players[0], {name:parts[1], cid:null, score:+parts[2] || 0, time:+parts[3] || 0}]);
+  },
+  joinSubmit: async () => {
+    const msg = $('#joinmsg'), code = (($('#joinCode') || {}).value || '').trim();
+    if (!code) { msg.textContent = 'اكتبي رمز الدخول'; return; }
+    msg.textContent = 'جارٍ الدخول...';
+    try { await joinWithCode(code); toast('تم ربط الجهاز ✅'); renderLogin(); }
+    catch (e) { msg.textContent = e.message; }
+  },
+  joinCodeNew: async () => {
+    if (!S.cloud || !S.cloud.f) return toast('أنشئي رابط الدخول أولاً');
+    const alph = 'abcdefghjkmnpqrstuvwxyz23456789', rnd = crypto.getRandomValues(new Uint8Array(10));
+    const code = [...rnd].map(x => alph[x % alph.length]).join('');
+    try { await joinApi({ action: 'set', f: S.cloud.f, code }); }
+    catch (e) { return toast(e.message); }
+    await modal('🔑 رمز الدخول للموقع', `<p>أعطي هذا الرمز للمستخدمين مع عنوان الموقع. يُكتب مرة واحدة على كل جهاز. يُعرض مرة واحدة فقط.</p><div style="font-size:22px;font-weight:700;letter-spacing:2px;direction:ltr">${code.replace(/(.{5})(?=.)/, '$1-')}</div>`, [{label: 'تم الحفظ ✅', val: 1}]);
+  },
+  joinCodeRevoke: async () => {
+    if (!S.cloud || !S.cloud.f) return;
+    try { await joinApi({ action: 'revoke', f: S.cloud.f }); toast('أُلغي رمز الدخول للموقع'); }
+    catch (e) { toast(e.message); }
   },
   copyText: d => copyText(d.t),
   shareText: d => { if (navigator.share) navigator.share({text:d.t}).catch(() => {}); else copyText(d.t); },
