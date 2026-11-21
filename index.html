@@ -3800,7 +3800,7 @@ const isGuardian = a => (a.perms || []).includes('kids');
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
   const ags = agents().filter(isGuardian), kids = S.children;
-  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><input data-gkn="${esc(a.id)}" maxlength="40" placeholder="اسم الطفل" style="width:150px"><input data-gkc="${esc(a.id)}" type="password" inputmode="numeric" autocomplete="off" placeholder="رمز الطفل (4 خانات على الأقل)" style="width:200px"><button class="btn ok sm" data-act="gmKidAdd" data-id="${esc(a.id)}">➕ إضافة طفل لهذا الولي</button></div></td></tr>`; }).join('');
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><input data-gkn="${esc(a.id)}" maxlength="40" autocomplete="off" autocapitalize="off" placeholder="اسم الطفل" style="width:150px"><input data-gkc="${esc(a.id)}" type="password" inputmode="numeric" autocomplete="new-password" placeholder="رمز الطفل (4 خانات على الأقل)" style="width:200px"><button class="btn ok sm" data-act="gmKidAdd" data-id="${esc(a.id)}">➕ إضافة طفل لهذا الولي</button></div></td></tr>`; }).join('');
   const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
   return `<div class="card"><h3>📋 سجل المستخدمين</h3>
     <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
@@ -3808,6 +3808,7 @@ function userRecordHtml(){
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th></tr>${gRows || '<tr><td colspan="5" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
     <div class="card" style="margin-top:10px"><h4>➕ إضافة ولي أمر يدوياً</h4>
       <label class="f">الاسم</label><input id="gmName" maxlength="40" placeholder="اسم ولي الأمر">
+      <label class="f" style="margin-top:6px">البريد الإلكتروني (اختياري)</label><input id="gmEmail" type="email" inputmode="email" placeholder="name@example.com">
       <label class="f" style="margin-top:6px">الرمز الخاص (4 أرقام على الأقل)</label><input id="gmCode" type="password" inputmode="numeric" autocomplete="off">
       <label class="f" style="margin-top:6px">الأطفال المسندون</label><div class="row" style="flex-wrap:wrap;gap:6px">${kids.map(c => `<label class="chk"><input type="checkbox" class="gmKid" value="${esc(c.id)}"> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
       <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="guardManualAdd">💾 إضافة ولي الأمر</button></div></div>
@@ -5433,8 +5434,7 @@ const ACT = {
   },
   // إضافة ولي أمر يدوياً من سجل المستخدمين: حساب بصلاحيات ولي أمر كاملة، ورمز فريد
   guardManualAdd: () => {
-    // لا بريد في الإضافة اليدوية: يسجّل ولي الأمر بريده بنفسه عند دخوله بالبريد
-    const name = (((document.querySelector('#gmName')) || {}).value || '').trim(), email = '';
+    const name = (((document.querySelector('#gmName')) || {}).value || '').trim(), email = (((document.querySelector('#gmEmail')) || {}).value || '').trim().toLowerCase();
     const pin = (((document.querySelector('#gmCode')) || {}).value || '').trim();
     if (!name) return toast('اكتبي اسم ولي الأمر');
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('البريد الإلكتروني غير صحيح');

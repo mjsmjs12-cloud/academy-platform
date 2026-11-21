@@ -5,7 +5,7 @@ const MAX_BYTES = 900 * 1024;     // حد أعلى لحجم البيانات (ق
 const FAMILY_RE = /^[a-f0-9]{32}$/;
 const VOICE_RE = /^chat_[a-z0-9]{1,20}$/;  // مفتاح الرسالة الصوتية كما يُنشأ على الجهاز
 const VOICE_MAX = 400 * 1024;              // حد الصوت بعد ترميزه Base64 (نحو 30 ثانية)
-const VOICE_TTL = 24 * 60 * 60;            // ثوانٍ: الصوت يُحذف بعد 24 ساعة لتوفير المساحة
+const VOICE_TTL = 48 * 60 * 60;            // ثوانٍ: الصوت يُحذف بعد 48 ساعة، كنص التعميم والرسائل
 
 // أسماء المتغيرات: تكفي إحدى المجموعتين (KV القديمة، أو Upstash Redis من سوق Vercel)
 const kvUrl = () => process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
