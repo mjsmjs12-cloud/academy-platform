@@ -2674,7 +2674,7 @@ function renderChatPage(id, room){
   }
   const composer = r === 'broadcast' ? '' : `<div class="card"><div class="row" style="gap:6px"><input id="chatTxt" placeholder="اكتبي رسالتك" style="flex:1"><button class="btn sm" data-act="chatSend" data-id="${esc(id)}">إرسال</button></div><div class="row center" style="margin-top:8px"><button class="btn sm ${CHAT_REC ? 'danger' : 'ok'}" data-act="${CHAT_REC ? 'chatRecStop' : 'chatRecStart'}" data-id="${esc(id)}">${CHAT_REC ? '⏹️ إيقاف التسجيل' : '🎙️ رسالة صوتية'}</button></div></div>`;
   view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><span class="pill">${avatar(c, 28)} ${esc(c.name)}</span></div>
-  <div class="hero"><h1>💬 المراسلة</h1><div class="muted">الرسائل تُحذف بعد 48 ساعة</div></div>
+  <div class="hero"><h1>💬 الدردشة</h1><div class="muted">الرسائل تُحذف بعد 48 ساعة</div></div>
   <div class="row center" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">${tabHtml}</div>
   ${body}
   ${composer}`;
@@ -2700,7 +2700,7 @@ function renderChild(id){
   // الترتيب: التنقل ← الترحيب ← زر الإحصائيات ← الدرس اليومي ← المواد ← الأدوات والإعدادات ← لوحة ولي الأمر
   view().innerHTML = `
   <!-- شريط الأعلى جهة اليمين (في RTL تكون بداية الصف هي اليمين): الإحصائيات والمراسلة ثم خروج ولون الملف والصورة -->
-  <div class="row" style="justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0 0 8px"><button class="btn sm ${UI.kidStats ? '' : 'ghost'}" data-act="kidStats" data-id="${esc(id)}">📊 إحصائيتي</button>${c.chatOff ? '' : `<button class="btn sm ok" data-act="chat" data-id="${esc(id)}">💬 المراسلة${chatUnread(id) ? ` <span class="pill">${chatUnread(id)}</span>` : ''}</button>`}<button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button><button class="btn ghost sm" data-act="achievements">🏆 الإنجازات</button><button class="btn ghost sm" data-act="myStars" data-id="${esc(id)}">🏆 إنجازاتي</button><button class="btn ghost sm" data-act="kidSettings" data-id="${esc(id)}">⚙️ إعداداتي (المستوى)</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
+  <div class="row" style="justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0 0 8px"><button class="btn sm ${UI.kidStats ? '' : 'ghost'}" data-act="kidStats" data-id="${esc(id)}">📊 إحصائيتي</button>${c.chatOff ? '' : `<button class="btn sm ok" data-act="chat" data-id="${esc(id)}">💬 الدردشة${chatUnread(id) ? ` <span class="pill">${chatUnread(id)}</span>` : ''}</button>`}<button class="btn ghost sm" data-act="kidLogout">🚪 خروج</button><button class="btn ghost sm" data-act="profilePick" data-id="${esc(id)}">🖌️ لون ملفي</button><button class="btn ghost sm" data-act="pickPhoto" data-id="${esc(id)}">📷 صورتي</button><button class="btn ghost sm" data-act="achievements">🏆 الإنجازات</button><button class="btn ghost sm" data-act="myStars" data-id="${esc(id)}">🏆 إنجازاتي</button><button class="btn ghost sm" data-act="kidSettings" data-id="${esc(id)}">⚙️ إعداداتي (المستوى)</button>${c.photo ? `<button class="btn ghost sm" data-act="clearPhoto" data-id="${esc(id)}">↩️ الصورة الأصلية</button>` : ''}</div>
   ${UI.pickProfile === id ? `<div class="card" style="text-align:center"><b>🖌️ اختاري لون ملفك:</b>
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
@@ -2722,8 +2722,8 @@ function renderChild(id){
     <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
     <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
     <button class="big-tile" data-act="smart" data-id="${esc(id)}"><span class="em">🧠</span>المعلمة الذكية</button>${favTilesHtml(c)}
-    <button class="big-tile" data-act="achievements"><span class="em">🏆</span>الإنجازات</button>
   </div>
+  ${extBlocksHtml(c, true)}
 `;
 }
 // الأسماء الحسنى (99) مع معنى مختصر، والأنبياء (25) مع سطر تعريفي. القصص والفيديوهات يضيفها ولي الأمر ويوافق عليها
@@ -6332,9 +6332,11 @@ function linksAdminHtml(){
 // المنصات المدمجة أولاً، ثم الروابط التي يضيفها مدير النظام من صفحة «الروابط والبطاقات»
 const BUILTIN_EXT = [['jaza', 'منصة جزاء', 'https://jaza.jzaa35677.workers.dev/', null], ['kg', 'منصة KG1 وKG2', 'https://billowing-haze-709d.ovahmedjazs.workers.dev/', null], ['games', 'فتح منصة الألعاب', 'https://jolly-limit-0945.jzaa35677.workers.dev/', 'منصة الألعاب'], ['g-dainty', 'بلاط الإملاء', 'https://dainty-empanada-28483e.netlify.app/', 'منصة الألعاب'], ['g-balloons', 'بالونات الحروف 3D', 'https://singular-khapse-fe0daf.netlify.app/', 'منصة الألعاب'], ['g-madd', 'ألعاب المدود', 'https://plain-wave-e041.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-similar', 'تحدّي الحروف المتشابهة', 'https://fancy-morning-f7ff.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-bobo', 'بوبو يتعلم القراءة', 'https://misty-tree-c633.allmail199.workers.dev/', 'منصة الألعاب'], ['g-hero', 'بطل مهارات لغتي', 'https://go199.netlify.app/', 'منصة الألعاب'], ['g-challenge', 'تحدي الحروف', 'https://ah1999.netlify.app/', 'منصة الألعاب'], ['g-shapes', 'أشكال الحرف', 'https://sh199.netlify.app/', 'منصة الألعاب'], ['g-invasion', 'غزو الحروف', 'https://fd199.netlify.app/', 'منصة الألعاب'], ['g-words', 'تحدي الكلمات والجملة', 'https://k199.netlify.app/', 'منصة الألعاب'], ['g-analysis', 'تحدي تحليل الكلمات', 'https://wa199.netlify.app/', 'منصة الألعاب'], ['g-path', 'طريق التأسيس', 'https://ro199.netlify.app/', 'منصة الألعاب'], ['g-arena', 'ساحة التحدي', 'https://th199.netlify.app/', 'منصة الألعاب']];
 // بطاقات المنصات في الشاشة الرئيسية للطفل: البطاقات بلا قسم في صف عام، وكل قسم يظهر تحت عنوانه
-function extBlocksHtml(c){
+// gamesPart=false: البطاقات العامة وباقي الأقسام (أعلى الشاشة)، gamesPart=true: قسم منصة الألعاب فقط (في آخر الشاشة)
+function extBlocksHtml(c, gamesPart = false){
   const tile = ([pid, title, url]) => `<div class="ext-tile"><a class="big-tile" href="${esc(url)}" target="_blank" rel="noopener"><span class="em">🌐</span>${esc(title)}</a><button class="fav-btn" data-act="extFav" data-id="${esc(c.id)}" data-p="${esc(pid)}" title="إضافة إلى المفضلة">${(c.favExt || []).includes(pid) ? '⭐' : '☆'}</button></div>`;
-  const vis = extPlatforms().filter(([pid]) => !extHidden(c, pid));
+  // نفس منطق الإخفاء السابق، مع فصل قسم الألعاب ليُعرض في الأسفل
+  const vis = extPlatforms().filter(([pid, , , sec]) => !extHidden(c, pid) && ((sec === 'منصة الألعاب') === gamesPart));
   const general = vis.filter(p => !p[3]);
   let h = general.length ? `<div class="tiles-grid">${general.map(tile).join('')}</div>` : '';
   [...new Set(vis.map(p => p[3]).filter(Boolean))].forEach(sec => {
