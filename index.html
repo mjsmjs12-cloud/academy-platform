@@ -2422,7 +2422,7 @@ function updateEnvelope(){
     el.dataset.act = 'kmsg'; el.dataset.id = kid; el.title = 'رسائلي';
     el.innerHTML = '✉️' + (n ? `<span class="env-pill">${n}</span>` : '');
   } else {
-    el.dataset.act = 'envParent'; el.dataset.id = ''; el.title = 'الرسائل';
+    el.dataset.act = 'envParent'; el.dataset.id = ''; el.title = 'الدردشة';
     el.innerHTML = '✉️';
   }
 }
@@ -2454,7 +2454,7 @@ function renderAdminHome(){
   <div class="set-grid">
     ${tile('dash', '', '📊', 'لوحة التحكم', 'ملخص الأطفال والتنبيهات')}
     ${tile('reports', '', '📈', 'التقارير', 'تقارير الوقت والمهارات')}
-    ${tile('inbox', '', '📥', 'الرسائل والتعميم', 'رسائل الأطفال والتعميم', unread ? `<span class="pill">${unread}</span>` : '')}
+    ${tile('inbox', '', '💬', 'الدردشة والتعميم', 'محادثات الأطفال والتعميم', unread ? `<span class="pill">${unread}</span>` : '')}
     ${tile('notes', '', '📝', 'الملاحظات', 'ملاحظات المتابعة والإجراءات')}
   </div>
   <h4 class="grp">📚 الأطفال والمحتوى</h4>
@@ -2574,18 +2574,26 @@ const dmRoom = (a, b) => 'dm:' + [a, b].sort().join('|');
 const seenKey = (cid, room) => cid + '|' + room;
 // المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد فقط
 const siblingsOf = (a, b) => agents().some(g => g.kids.includes(a) && g.kids.includes(b));
-const dmKids = id => S.children.filter(k => k.id !== id && !k.chatOff && siblingsOf(id, k.id));
+const dmKids = id => { const sib = S.children.filter(k => k.id !== id && !k.chatOff && siblingsOf(id, k.id)); return [...sib, ...linkPartners(id).filter(k => !sib.some(x => x.id === k.id))]; };
 // مراسلة الطفل مع ولي أمره (الوكيل النشط المسنَد إليه)؛ الغرفة خاصة بينهما
 const guardRoomsOf = cid => agents().filter(a => a.kids.includes(cid) && isActive(a)).map(a => ({room: dmRoom(cid, a.id), label: '👤 ' + a.name}));
 // الدردشة الجماعية بين أبناء ولي أمر فعّلها المدير من سجل المستخدمين: غرفة مشتركة لأبنائه فقط
 const grpRoom = aid => 'grp:' + aid;
 const guardGroupsOf = cid => agents().filter(a => a.groupOn && a.kids.includes(cid) && isActive(a)).map(a => ({room: grpRoom(a.id), label: '👥 مجموعة الإخوة'}));
+// ربط عائلتين بموافقة مدير النظام: إما خاص بين كل طفلين، أو مجموعة واحدة لأبناء الطرفين
+const linksAll = () => (S.settings.links = S.settings.links || []);
+const agentName = aid => { const a = agents().find(x => x.id === aid); return a ? a.name : '—'; };
+const kidsOfAgentId = aid => { const a = agents().find(x => x.id === aid); return a && isActive(a) ? a.kids.filter(id => CH(id)) : []; };
+const linkedKidsOf = (cid, mode) => linksAll().filter(l => l.on && l.mode === mode && (kidsOfAgentId(l.a).includes(cid) || kidsOfAgentId(l.b).includes(cid)));
+const linkPartners = cid => { const out = []; linkedKidsOf(cid, 'private').forEach(l => { const other = kidsOfAgentId(l.a).includes(cid) ? kidsOfAgentId(l.b) : kidsOfAgentId(l.a); other.forEach(id => { const k = CH(id); if (k && !k.chatOff && id !== cid && !out.some(x => x.id === id)) out.push(k); }); }); return out; };
+const lnkGroupsOf = cid => linkedKidsOf(cid, 'group').map(l => ({room: 'lnk:' + l.id, label: '👥 مجموعة بين عائلتين'}));
 // الغرفة متاحة للطفل إن كانت التعميمات، أو المجموعة لمن أضافه المدير إليها، أو خاصة مع أخ مسند لنفس ولي الأمر، أو مع ولي أمره
 const roomAllowed = (cid, room) => {
   const c = CH(cid); if (!c || c.chatOff) return false;
   if (room === 'broadcast') return true;
   if (room === 'group') return !!c.inGroup;
   if (room.startsWith('grp:')) return guardGroupsOf(cid).some(g => g.room === room);
+  if (room.startsWith('lnk:')) return lnkGroupsOf(cid).some(g => g.room === room);
   return dmKids(cid).some(k => dmRoom(cid, k.id) === room) || guardRoomsOf(cid).some(g => g.room === room);
 };
 // حذف الرسائل والتعميمات الأقدم من 48 ساعة، مع تفريغ تسجيلاتها الصوتية
@@ -2651,9 +2659,13 @@ async function recordVoice(onSaved, onChange){
 const editBox = (k, text) => UI.edit === k
   ? `<div class="row" style="gap:6px;margin-top:6px"><textarea id="edTxt" rows="2" style="flex:1">${esc(text)}</textarea><button class="btn sm ok" data-act="saveEdit" data-k="${esc(k)}">💾 حفظ</button><button class="btn sm ghost" data-act="editCancel">إلغاء</button></div>`
   : `<button class="btn sm ghost" data-act="editStart" data-k="${esc(k)}">✏️ تعديل</button>`;
+// لون الفقاعة حسب الطفل المرسِل: لون ملفه، وتظليل فاتح منه للخلفية
+const kidColor = cid => { const c = CH(cid); return (c && /^#[0-9a-f]{6}$/i.test(c.color || '')) ? c.color : '#e75a8c'; };
+const kidTint = cid => kidColor(cid) + '2e';
 // عنوان الغرفة كما يراه المدير: المجموعة، أو مجموعة الإخوة لولي أمر، أو محادثة بين شخصين
 function roomTitle(room){
   if (room === 'group') return '👥 المجموعة الجماعية';
+  if (room.startsWith('lnk:')) { const l = linksAll().find(x => x.id === room.slice(4)); return '👥 مجموعة بين عائلتين' + (l ? ' — ' + esc(agentName(l.a)) + ' و' + esc(agentName(l.b)) : ''); }
   if (room.startsWith('grp:')) { const a = agents().find(x => x.id === room.slice(4)); return '👥 مجموعة الإخوة' + (a ? ' — ' + esc(a.name) : ''); }
   const names = room.slice(3).split('|').map(id => { const c = CH(id); if (c) return c.name; const a = agents().find(x => x.id === id); return a ? a.name : '—'; });
   return '💬 ' + names.map(n => esc(n)).join(' و ');
@@ -2663,7 +2675,7 @@ const roomMsgs = room => chatState().msgs.filter(m => m.room === room).sort((a, 
 function chatUnread(cid){
   const me = CH(cid); if (!me || me.chatOff) return 0;
   const st = chatState(); let n = 0;
-  const rooms = [...(me.inGroup ? ['group'] : []), ...guardGroupsOf(cid).map(g => g.room), ...dmKids(cid).map(k => dmRoom(cid, k.id)), ...guardRoomsOf(cid).map(g => g.room)];
+  const rooms = [...(me.inGroup ? ['group'] : []), ...guardGroupsOf(cid).map(g => g.room), ...lnkGroupsOf(cid).map(g => g.room), ...dmKids(cid).map(k => dmRoom(cid, k.id)), ...guardRoomsOf(cid).map(g => g.room)];
   for (const r of rooms) { const since = st.seen[seenKey(cid, r)] || 0; n += st.msgs.filter(m => m.room === r && m.from !== cid && m.at > since).length; }
   const bs = st.seen[seenKey(cid, 'broadcast')] || 0;
   return n + broadcasts().filter(b => b.at > bs).length;
@@ -2673,7 +2685,7 @@ function renderChatPage(id, room){
   const c = CH(id); if (!c) return;
   chatPrune();
   // الغرف الخاصة: الإخوة المسندون لنفس ولي الأمر، ثم ولي الأمر نفسه
-  const privRooms = [...guardGroupsOf(id), ...dmKids(id).map(k => ({room: dmRoom(id, k.id), label: '💬 ' + kName(k)})), ...guardRoomsOf(id)];
+  const privRooms = [...guardGroupsOf(id), ...lnkGroupsOf(id), ...dmKids(id).map(k => ({room: dmRoom(id, k.id), label: '💬 ' + kName(k)})), ...guardRoomsOf(id)];
   let r = room || 'group'; if (!roomAllowed(id, r)) r = c.inGroup ? 'group' : (privRooms[0] ? privRooms[0].room : 'broadcast'); UI.chatRoom = r;
   if (c.chatOff) { view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div><div class="card center"><h3>💬 المراسلة متوقفة</h3><p class="muted">أوقف ولي الأمر المراسلة لهذه الحساب.</p></div>`; return; }
   const tabs = [['broadcast', '📢 التعميمات'], ...(c.inGroup ? [['group', '👥 المجموعة']] : []), ...privRooms.map(p => [p.room, p.label])];
@@ -2687,7 +2699,7 @@ function renderChatPage(id, room){
     body = roomMsgs(r).map(m => {
       const mine = m.from === id;
       const content = m.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(m.vk)}">▶️ استماع 🎙️</button>` : `<div>${esc(m.text)}</div>`;
-      return `<div class="row" style="justify-content:${mine ? 'flex-end' : 'flex-start'}"><div class="card" style="max-width:80%;margin:4px 0;background:${mine ? '#fde4ee' : '#fff'}"><div class="muted" style="font-size:12px">${esc(m.name)}</div>${content}</div></div>`;
+      return `<div class="row" style="justify-content:${mine ? 'flex-end' : 'flex-start'}"><div class="card" style="max-width:80%;margin:4px 0;background:${kidTint(m.from)};border-right:5px solid ${kidColor(m.from)}"><div class="muted" style="font-size:12px">${esc(m.name)}</div>${content}</div></div>`;
     }).join('') || '<p class="muted center">لا توجد رسائل بعد.</p>';
   }
   const composer = r === 'broadcast' ? '' : `<div class="card"><div class="row" style="gap:6px"><input id="chatTxt" placeholder="اكتبي رسالتك" style="flex:1"><button class="btn sm" data-act="chatSend" data-id="${esc(id)}">إرسال</button></div><div class="row center" style="margin-top:8px"><button class="btn sm ${CHAT_REC ? 'danger' : 'ok'}" data-act="${CHAT_REC ? 'chatRecStop' : 'chatRecStart'}" data-id="${esc(id)}">${CHAT_REC ? '⏹️ إيقاف التسجيل' : '🎙️ رسالة صوتية'}</button></div></div>`;
@@ -3775,7 +3787,7 @@ function alertsHtml(){
     if (isFrozenNow(c)) return `<div class="row" style="gap:6px">🔒 <b>${esc(c.name)}</b>: الحساب مجمّد، لم تدخل منذ ${d} يوم</div>`;
     return d >= INACTIVE_NOTICE_DAYS ? `<div class="row" style="gap:6px">🔔 <b>${esc(c.name)}</b>: لم تدخل منذ ${d} يوم</div>` : '';
   }).filter(Boolean);
-  if (UI.parentRole === 'admin' && unreadCount()) rows.unshift(`<div class="row" style="gap:6px">📥 لديك <b>${unreadCount()}</b> رسالة جديدة في تبويب «الرسائل»</div>`);
+  if (UI.parentRole === 'admin' && unreadCount()) rows.unshift(`<div class="row" style="gap:6px">📥 لديك <b>${unreadCount()}</b> رسالة جديدة في تبويب «الدردشة»</div>`);
   return rows.length ? `<div class="card" style="border-right:6px solid #f0a500"><h3>🔔 تنبيهات الدخول</h3>${rows.join('')}</div>` : '';
 }
 // حالة الحساب في ملف الطفل، مع زر إعادة التفعيل لمدير النظام فقط
@@ -3856,6 +3868,12 @@ function agentsHtml(){
       <label class="f">تنتهي في (اتركيه فارغاً للدائمة)</label><input id="agUntil" type="date" lang="en-US">
       <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).filter(([k]) => k !== 'full').map(([k, t]) => `<button class="btn sm" data-act="agentAdd" data-t="${k}">➕ ${t.label}</button>`).join('')}</div></div></div>`;
 }
+// واجهة ربط العائلتين لمدير النظام: اختيار وليَّي أمر ونوع الربط، مع إيقاف أو حذف
+function linksHtml(){
+  const opts = agents().filter(a => isGuardian(a) && isActive(a)).map(a => `<option value="${esc(a.id)}">👤 ${esc(a.name)}</option>`).join('');
+  const rows = linksAll().map(l => `<div class="row between" style="gap:6px;margin-top:6px"><span>${esc(agentName(l.a))} ↔ ${esc(agentName(l.b))} — ${l.mode === 'group' ? '👥 جماعية' : '💬 خاصة بين كل طفلين'}${l.on ? '' : ' (موقوف)'}</span><span class="row" style="gap:6px"><button class="btn sm ${l.on ? 'ghost' : 'ok'}" data-act="linkToggle" data-id="${esc(l.id)}">${l.on ? '⛔ إيقاف' : '✅ تفعيل'}</button><button class="btn sm danger" data-act="linkDel" data-id="${esc(l.id)}">🗑️ حذف</button></span></div>`).join('');
+  return `<div class="card" style="margin-top:10px"><h4>🔗 ربط عائلتين</h4><p class="muted">يفعّله مدير النظام فقط، ويظهر الربط لأطفال الوليَّين.</p><div class="row" style="gap:6px;flex-wrap:wrap"><select id="lkA"><option value="">ولي الأمر الأول</option>${opts}</select><select id="lkB"><option value="">ولي الأمر الثاني</option>${opts}</select><select id="lkMode"><option value="private">💬 خاصة بين كل طفلين</option><option value="group">👥 مجموعة جماعية</option></select><button class="btn sm ok" data-act="linkAdd">➕ ربط</button></div>${rows || '<p class="muted">لا توجد روابط بعد</p>'}</div>`;
+}
 function savePinFromForm(){
   const el = $('#gpin'); if (!el) return;
   const v = (el.value || '').trim(), clr = !!($('#gpinclear') && $('#gpinclear').checked);
@@ -3912,9 +3930,9 @@ const PARENT_GROUPS = [
   ['🖨️ الأدوات', ['print']],
   ['⚙️ النظام', ['settings']]
 ];
-const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'📥 الرسائل والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'💬 الدردشة والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 // وصف قصير لكل بطاقة في قائمة صفحة ولي الأمر (يظهر تحت العنوان كما في بطاقات الإعدادات)
-const PARENT_DESC = {dash:'ملخص أطفالك وتنبيهاتهم', inbox:'الرسائل الواردة والتعميم', kids:'ملفات الأطفال وإعداداتهم', reports:'تقارير الوقت والإنجاز', notes:'ملاحظات تُحفظ لكل طفل', words:'إضافة الكلمات ومراجعتها', adhkar:'الأذكار والأدعية للأطفال', content:'الأسماء والأنبياء للأطفال', yt:'قنوات يوتيوب المعتمدة', tg:'قصص مصورة بصيغة PDF', print:'طباعة التقارير والأوراق', settings:'إعدادات البرنامج والحساب'};
+const PARENT_DESC = {dash:'ملخص أطفالك وتنبيهاتهم', inbox:'الدردشة الواردة والتعميم', kids:'ملفات الأطفال وإعداداتهم', reports:'تقارير الوقت والإنجاز', notes:'ملاحظات تُحفظ لكل طفل', words:'إضافة الكلمات ومراجعتها', adhkar:'الأذكار والأدعية للأطفال', content:'الأسماء والأنبياء للأطفال', yt:'قنوات يوتيوب المعتمدة', tg:'قصص مصورة بصيغة PDF', print:'طباعة التقارير والأوراق', settings:'إعدادات البرنامج والحساب'};
 // يفصل الأيقونة (أول كلمة) عن عنوان البطاقة
 const parentCard = (k, on) => {
   const s = PARENT_LABELS[k], i = s.indexOf(' ');
@@ -4171,7 +4189,7 @@ const PARENT = {
     const rooms = Object.keys(byRoom).sort((x, y) => latest(y) - latest(x));
     const bubble = m => {
       const content = m.kind === 'voice' ? `<button class="btn sm" data-act="chatPlay" data-k="${esc(m.vk)}">▶️ استماع 🎙️</button>` : `<div>${esc(m.text)}</div>${editBox('ch:' + m.id, m.text)}`;
-      return `<div style="margin:6px 0;padding:6px 10px;border-radius:12px;background:#fde4ee;max-width:85%"><div class="row between" style="gap:6px"><b style="font-size:12px">${esc(m.name)}</b><span class="muted" style="font-size:11px">${esc(msgTime(m.at))}</span></div>${content}<button class="btn sm danger" style="margin-top:4px" data-act="chatDel" data-id="${esc(m.id)}">🗑️ حذف</button></div>`;
+      return `<div style="margin:6px 0;padding:6px 10px;border-radius:12px;background:${kidTint(m.from)};border-right:5px solid ${kidColor(m.from)};max-width:85%"><div class="row between" style="gap:6px"><b style="font-size:12px">${esc(m.name)}</b><span class="muted" style="font-size:11px">${esc(msgTime(m.at))}</span></div>${content}<button class="btn sm danger" style="margin-top:4px" data-act="chatDel" data-id="${esc(m.id)}">🗑️ حذف</button></div>`;
     };
     const body = rooms.map(r => `<div style="border:1px solid #f0b6cc;border-radius:12px;padding:8px;margin-top:10px"><h4 style="margin:0 0 4px">${roomTitle(r)} <span class="muted" style="font-size:12px">(${byRoom[r].length} رسالة)</span></h4>${byRoom[r].slice().sort((a, b) => a.at - b.at).map(bubble).join('')}</div>`).join('');
     return `<div class="card"><h3>👀 محادثات الأطفال (آخر 48 ساعة)</h3>${rooms.length ? body : '<p class="muted">لا توجد محادثات.</p>'}</div>`;
@@ -4179,8 +4197,8 @@ const PARENT = {
   inboxList(){
     const list = (S.inbox || []).filter(msgVisible).slice().reverse();
     const admin = UI.parentRole === 'admin';
-    if (!list.length) return `<div class="card"><h3>📥 الرسائل</h3><p class="muted">لا توجد رسائل.</p></div>`;
-    return `<div class="card"><h3>📥 الرسائل (${list.filter(m => !m.read).length} جديدة)</h3>${list.map(m => {
+    if (!list.length) return `<div class="card"><h3>📥 الدردشة الواردة</h3><p class="muted">لا توجد رسائل.</p></div>`;
+    return `<div class="card"><h3>📥 الدردشة الواردة (${list.filter(m => !m.read).length} جديدة)</h3>${list.map(m => {
       const kid = m.cid ? CH(m.cid) : null, frozen = kid && isFrozenNow(kid);
       const replies = (m.replies || []).map((r, i) => `<div class="muted" style="margin-top:4px">↩️ <b>${esc(r.by)}:</b> ${esc(r.text)}</div>${admin ? editBox('rp:' + m.id + ':' + i, r.text) : ''}`).join('');
       // الرد يُرسل إلى الطفل من أي من مستلمي الرسالة، ولا رد على الرسائل بلا طفل
@@ -4353,7 +4371,7 @@ const PARENT = {
       <p class="muted" style="font-size:13px">يُطبَّق على جميع أولياء الأمور، ويمكن تغييره لولي أمر بعينه من بطاقته في «الوكلاء».</p></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
     ${sec('users', userRecordHtml())}
-    ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>`)}
+    ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>${linksHtml()}`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
     ${sec('links', linksAdminHtml())}
@@ -5507,6 +5525,18 @@ const ACT = {
     const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
   },
   // حذف ولي أمر: تُلغى صلاحياته ورمزه، وتبقى أسماء أطفاله كما هي
+  linkAdd: () => {
+    const a = (($('#lkA') || {}).value || ''), b = (($('#lkB') || {}).value || ''), mode = (($('#lkMode') || {}).value || 'private');
+    if (!a || !b || a === b) return toast('اختاري وليَّي أمر مختلفين');
+    if (linksAll().some(l => (l.a === a && l.b === b) || (l.a === b && l.b === a))) return toast('هذان الوليّان مرتبطان من قبل');
+    linksAll().push({id: 'lk' + Date.now().toString(36), a, b, mode: mode === 'group' ? 'group' : 'private', on: true});
+    save(); toast('تم ربط العائلتين 🔗'); renderParent();
+  },
+  linkToggle: d => { const l = linksAll().find(x => x.id === d.id); if (!l) return; l.on = !l.on; save(); renderParent(); },
+  linkDel: async d => {
+    if (!(await confirmBox('حذف هذا الربط؟', 'يتوقف التواصل بين أطفال العائلتين.'))) return;
+    S.settings.links = linksAll().filter(x => x.id !== d.id); save(); renderParent();
+  },
   gmGroup: d => {
     const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return;
     a.groupOn = !a.groupOn; save(); toast(a.groupOn ? 'فُعّلت الدردشة الجماعية لأبنائه 💬' : 'أُوقفت الدردشة الجماعية لأبنائه');
