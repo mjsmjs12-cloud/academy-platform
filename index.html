@@ -941,7 +941,7 @@ function renderCloudSettings(){
 // قسم ربط Google Drive داخل صفحة الإعدادات
 function renderDriveSettings(){
   const saved = JSON.parse(localStorage.getItem(DRIVE_KEY) || 'null');
-  return renderCloudSettings() + `<label class="f">☁️ ربط Google Drive (معرّف العميل Client ID)</label>
+  return `<label class="f">☁️ ربط Google Drive (معرّف العميل Client ID)</label>
     <input id="gdrive" value="${saved ? esc(saved.clientId) : ''}" placeholder="xxxx.apps.googleusercontent.com">
     <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
       <button class="btn sm ghost" data-act="driveNow">🔄 مزامنة الآن</button>
@@ -2541,6 +2541,16 @@ const chatState = () => (S.chat = S.chat || {msgs: [], seen: {}}, S.chat);
 const broadcasts = () => (S.broadcasts = S.broadcasts || []);
 const dmRoom = (a, b) => 'dm:' + [a, b].sort().join('|');
 const seenKey = (cid, room) => cid + '|' + room;
+// المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد فقط
+const siblingsOf = (a, b) => agents().some(g => g.kids.includes(a) && g.kids.includes(b));
+const dmKids = id => S.children.filter(k => k.id !== id && !k.chatOff && siblingsOf(id, k.id));
+// الغرفة متاحة للطفل إن كانت التعميمات، أو المجموعة لمن أضافه المدير إليها، أو خاصة مع أخ مسند لنفس ولي الأمر
+const roomAllowed = (cid, room) => {
+  const c = CH(cid); if (!c || c.chatOff) return false;
+  if (room === 'broadcast') return true;
+  if (room === 'group') return !!c.inGroup;
+  return dmKids(cid).some(k => dmRoom(cid, k.id) === room);
+};
 // حذف الرسائل والتعميمات الأقدم من شهر، مع تفريغ تسجيلاتها الصوتية
 // الصوت على الجهاز يبقى مع الرسالة شهراً، أما نسخته في السحابة فتُحذف بعد 24 ساعة
 async function chatPrune(){
@@ -2607,7 +2617,7 @@ const roomMsgs = room => chatState().msgs.filter(m => m.room === room).sort((a, 
 function chatUnread(cid){
   const me = CH(cid); if (!me || me.chatOff) return 0;
   const st = chatState(); let n = 0;
-  const rooms = ['group', ...S.children.filter(k => k.id !== cid).map(k => dmRoom(cid, k.id))];
+  const rooms = [...(me.inGroup ? ['group'] : []), ...dmKids(cid).map(k => dmRoom(cid, k.id))];
   for (const r of rooms) { const since = st.seen[seenKey(cid, r)] || 0; n += st.msgs.filter(m => m.room === r && m.from !== cid && m.at > since).length; }
   const bs = st.seen[seenKey(cid, 'broadcast')] || 0;
   return n + broadcasts().filter(b => b.at > bs).length;
@@ -2616,9 +2626,9 @@ const markSeen = (cid, room) => { chatState().seen[seenKey(cid, room)] = Date.no
 function renderChatPage(id, room){
   const c = CH(id); if (!c) return;
   chatPrune();
-  const r = room || 'group'; UI.chatRoom = r;
+  let r = room || 'group'; if (!roomAllowed(id, r)) r = c.inGroup ? 'group' : (dmKids(id)[0] ? dmRoom(id, dmKids(id)[0].id) : 'broadcast'); UI.chatRoom = r;
   if (c.chatOff) { view().innerHTML = `<div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button></div><div class="card center"><h3>💬 المراسلة متوقفة</h3><p class="muted">أوقف ولي الأمر المراسلة لهذه الحساب.</p></div>`; return; }
-  const tabs = [['broadcast', '📢 التعميمات'], ['group', '👥 المجموعة'], ...S.children.filter(k => k.id !== id && !k.chatOff).map(k => [dmRoom(id, k.id), '💬 ' + kName(k)])];
+  const tabs = [['broadcast', '📢 التعميمات'], ...(c.inGroup ? [['group', '👥 المجموعة']] : []), ...dmKids(id).map(k => [dmRoom(id, k.id), '💬 ' + kName(k)])];
   const tabHtml = tabs.map(([k, l]) => `<button class="btn sm ${k === r ? '' : 'ghost'}" data-act="chatRoom" data-id="${esc(id)}" data-room="${esc(k)}">${esc(l)}</button>`).join('');
   let body;
   if (r === 'broadcast') {
@@ -3660,9 +3670,11 @@ function weekPresent(c){
 // ===== مراسلة مدير النظام: طلب تفعيل أو رسالة من الطفل أو الوكيل =====
 // الرسائل محفوظة على هذا الجهاز مع بيانات الأكاديمية
 // to: 'admin' أو معرّف الوكيل؛ الرسائل القديمة بلا to تُعامل كطلبات لمدير النظام
-function sendToAdmin(from, name, text, kind, cid, to){
+const SUB_TYPES = {note:'📝 ملاحظة', idea:'💡 مقترح', complaint:'⚠️ شكوى', general:'💬 رسالة عامة'};
+const subSelect = id => `<select id="${id}">${Object.entries(SUB_TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>`;
+function sendToAdmin(from, name, text, kind, cid, to, sub){
   S.inbox = S.inbox || [];
-  S.inbox.push({id:'m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), from, name, text: String(text || '').trim().slice(0, 500), kind, cid: cid || null, to: to || null, at: Date.now(), read: false});
+  S.inbox.push({id:'m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), from, name, text: String(text || '').trim().slice(0, 500), kind, sub: sub || null, cid: cid || null, to: to || null, at: Date.now(), read: false});
   save();
 }
 const unreadCount = () => (S.inbox || []).filter(m => !m.read).length;
@@ -3696,13 +3708,14 @@ function renderKidMsgs(cid){
   const recips = kidRecipients(cid);
   const items = kidMsgsOf(cid).map(m => {
     const replies = (m.replies || []).map(r => `<div class="card" style="background:#f3f9ff;margin:6px 0 0"><span class="muted" style="font-size:12px">↩️ ${esc(r.by)} • ${esc(msgTime(r.at))}</span><div>${esc(r.text)}</div></div>`).join('');
-    const head = m.kind === 'activate' ? '🔓 طلب تفعيل' : 'إلى: ' + esc(toLabel(m.to));
+    const head = (m.kind === 'activate' ? '🔓 طلب تفعيل' : 'إلى: ' + esc(toLabel(m.to))) + (m.sub && SUB_TYPES[m.sub] ? ' — ' + SUB_TYPES[m.sub] : '');
     return `<div class="card" style="border-right:6px solid ${m.kidUnread ? '#c73f70' : '#ccc'}"><div class="row between"><b>${head}</b><span class="muted" style="font-size:12px">${esc(msgTime(m.at))}</span></div><div>${esc(m.text)}</div>${replies}</div>`;
   }).join('');
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><h2>✉️ رسائلي</h2></div>
   <div class="card"><h3>✉️ رسالة جديدة</h3>
     <label class="f">إلى</label><select id="kmTo">${recips.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join('')}</select>
+    <label class="f">النوع</label>${subSelect('kmSub')}
     <textarea id="kmTxt" rows="3" maxlength="500" style="width:100%;margin-top:8px" placeholder="اكتبي رسالتك"></textarea>
     <div class="row" style="margin-top:8px"><button class="btn ok" data-act="kidSend" data-id="${esc(cid)}">📨 إرسال</button></div>
   </div>
@@ -3853,6 +3866,7 @@ function renderGuardianHome(){
   ${alertsHtml()}
   <div class="tiles-grid">${tiles}<button class="big-tile" data-act="gSettings"><span class="em">⚙️</span>إعداداتي</button></div>
   ${tiles ? '' : '<p class="muted center">لا توجد صفحات مسموحة لك، اطلبي من مدير النظام منح الصلاحيات.</p>'}
+  <div class="card"><h3>✉️ مراسلة مدير النظام</h3><p class="muted" style="font-size:13px">للملاحظات والمقترحات والشكاوي.</p><label class="f">النوع</label>${subSelect('gaSub')}<textarea id="gaTxt" rows="3" maxlength="500" style="width:100%;margin-top:8px" placeholder="اكتبي رسالتك"></textarea><div class="row" style="margin-top:8px"><button class="btn ok" data-act="gSendAdmin">📨 إرسال</button></div></div>
   <div class="card"><h3>🔑 أطفالي وروابط دخولهم</h3>${kidRows || '<p class="muted">لا يوجد أطفال مسندون إليك.</p>'}</div>
   ${!a || !a.perms.includes('kids') ? '' : !a.emailOk ? '<p class="muted center" style="margin-top:8px">لإضافة الأطفال فعّلي بريدك أولاً: سجّلي الدخول بالبريد واكتبي الرمز المرسل إليه.</p>' : UI.gAddKid ? `<div class="card"><h3>➕ إضافة طفل</h3>
     <label class="f">اسم الطفل</label><input id="gkName" autocomplete="off">
@@ -4050,13 +4064,14 @@ const SETTINGS_PAGES = [
   ['health','🌿','التذكير والاستراحة','تذكير الاستراحة أثناء الدراسة','general'],
   ['security','🔐','الأمان ورمز المدير','رمز الدخول واسم مدير النظام','admin'],
   ['agents','👥','الوكلاء وصلاحياتهم','إنشاء الوكلاء وتحديد صلاحياتهم ومدتها','admin'],
+  ['chat','💬','المجموعة والمراسلة','إضافة الأطفال إلى المجموعة الجماعية','admin'],
   ['backup','💾','النسخ الاحتياطي والمزامنة','رابط الدخول من الأجهزة والنسخ الاحتياطي','admin'],
   ['about','ℹ️','عن البرنامج والنصائح','معلومات البرنامج ونصائح للاستخدام','general']
 ];
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
   ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']],
-  ['👑 إدارة مدير النظام', ['security','agents','backup']]
+  ['👑 إدارة مدير النظام', ['security','agents','chat','backup']]
 ];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل طفل مسندة إليه، مع الوصول إلى تقريرها الكامل
@@ -4088,7 +4103,7 @@ const PARENT = {
       const addP = admin ? `<div class="muted" style="font-size:12px;margin-top:4px">المشاركون: ${parts ? esc(parts) : 'لا أحد بعد'}</div>${guards.length ? `<div class="row" style="gap:6px;margin-top:6px"><select id="ap_${esc(m.id)}">${guards.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select><button class="btn sm ghost" data-act="addParticipant" data-id="${esc(m.id)}">➕ إضافة ولي أمر للمحادثة</button></div>` : ''}` : '';
       return `<div class="card" id="msg_${esc(m.id)}" style="border-right:6px solid ${m.read ? '#ccc' : '#c73f70'}">
         <div class="row between"><span><b>${esc(m.name)}</b> <span class="muted" style="font-size:12px">← ${esc(toLabel(m.to))}</span></span><span class="muted" style="font-size:12px">${esc(msgTime(m.at))}</span></div>
-        <p>${m.kind === 'activate' ? '🔓 <b>طلب تفعيل:</b> ' : ''}${esc(m.text || '—')}</p>${admin ? editBox('in:' + m.id, m.text || '') : ''}${replies}${reply}${addP}
+        <p>${m.kind === 'activate' ? '🔓 <b>طلب تفعيل:</b> ' : ''}${m.sub && SUB_TYPES[m.sub] ? '<b>' + SUB_TYPES[m.sub] + ':</b> ' : ''}${esc(m.text || '—')}</p>${admin ? editBox('in:' + m.id, m.text || '') : ''}${replies}${reply}${addP}
         <div class="row" style="gap:6px;flex-wrap:wrap">${admin && !m.read ? `<button class="btn sm ghost" data-act="inboxRead" data-id="${esc(m.id)}">✅ تم التعامل</button>` : ''}${admin && frozen ? `<button class="btn sm ok" data-act="reactivateKid" data-id="${esc(kid.id)}">🔓 إعادة تفعيل ${esc(kid.name)}</button>` : ''}${admin ? `<button class="btn sm danger" data-act="inboxDel" data-id="${esc(m.id)}">🗑️ حذف</button>` : ''}</div></div>`;
     }).join('')}</div>`;
   },
@@ -4249,6 +4264,7 @@ const PARENT = {
       <label class="f">الحد الأقصى العام</label><input id="gmaxkids" type="number" min="1" max="50" value="${S.settings.maxKidsDefault || 5}">
       <p class="muted" style="font-size:13px">يُطبَّق على جميع أولياء الأمور، ويمكن تغييره لولي أمر بعينه من بطاقته في «الوكلاء».</p></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
+    ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
     ${sec('about', PARENT.tips())}
@@ -4702,6 +4718,7 @@ const ACT = {
   },
   // خروج ولي الأمر من حسابه
   // خروج عام من أي صفحة (ولي أمر، مدير، أو طفل): يمسح الجلسة في هذا التبويب
+  gSendAdmin: () => { const a = currentAgent(), t = (($('#gaTxt') || {}).value || '').trim(); if (!a) return; if (!t) return toast('اكتبي رسالتك أولاً'); sendToAdmin('agent:' + a.id, a.name, t, 'msg', null, 'admin', ($('#gaSub') || {}).value || 'general'); toast('تم إرسال الرسالة لمدير النظام ✅'); $('#gaTxt').value = ''; },
   appLogout: () => { clearTimeout(parentTimer); UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} go(renderHome); },
   guardLogout: () => { UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفل الرئيسية
@@ -4827,14 +4844,14 @@ const ACT = {
   chatRoom: d => renderChatPage(d.id, d.room),
   chatSend: d => {
     const t = (($('#chatTxt') || {}).value || '').trim(), c = CH(d.id), room = UI.chatRoom || 'group';
-    if (!t || !c || c.chatOff || room === 'broadcast') return;
+    if (!t || !c || room === 'broadcast' || !roomAllowed(d.id, room)) return;
     chatState().msgs.push({id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), room, from: d.id, name: c.name, kind: 'text', text: t.slice(0, 500), at: Date.now()});
     save(); renderChatPage(d.id, room);
   },
   chatRecStart: d => {
     const c = CH(d.id);
-    if (!c || c.chatOff) return;
     const room = UI.chatRoom || 'group';
+    if (!c || room === 'broadcast' || !roomAllowed(d.id, room)) return;
     recordVoice(vk => chatState().msgs.push({id: 'c' + Date.now().toString(36), room, from: d.id, name: c.name, kind: 'voice', vk, at: Date.now()}), () => renderChatPage(d.id, room));
   },
   // تعميم صوتي من مدير النظام يصل إلى كل الأطفال
@@ -5510,7 +5527,7 @@ const ACT = {
     const c = CH(d.id), t = (($('#kmTxt') || {}).value || '').trim(), to = ($('#kmTo') || {}).value || 'admin';
     if (!t || !c || c.chatOff) return;
     if (!kidRecipients(d.id).some(([id]) => id === to)) return toast('هذا المستلم غير متاح');
-    sendToAdmin('child:' + c.id, c.name, t, 'msg', c.id, to);
+    sendToAdmin('child:' + c.id, c.name, t, 'msg', c.id, to, ($('#kmSub') || {}).value || 'general');
     toast('تم إرسال الرسالة ✅'); renderKidMsgs(d.id);
   },
   // رد ولي الأمر أو مدير النظام: يظهر للطفل كرسالة جديدة
@@ -5544,6 +5561,7 @@ const ACT = {
     const qp = $('#gqrep'), qn = $('#gqnight');
     if ($('#gguardreg')) S.settings.guardReg = $('#gguardreg').value;
     if ($('#gmaxkids')) S.settings.maxKidsDefault = Math.min(50, Math.max(1, parseInt($('#gmaxkids').value, 10) || 5));
+    S.children.forEach(c => { const g = $('#ingrp_' + c.id); if (g) c.inGroup = g.checked; });
     if ($('#gemail')) { S.settings.emailLogin = $('#gemail').value; if (S.settings.emailLogin === 'off') S.children.forEach(c => { c.email = ''; }); }
     if (qp) S.settings.quranRepeat = +qp.value; if (qn) S.settings.quranNight = qn.checked; S.settings.ytScript = (($('#gytscript') || {value:''}).value || '').trim(); S.settings.driveFolder = (($('#gdfolder') || {value:''}).value || '').trim() || 'أكاديمية'; S.settings.digits = $('#gdig').value; S.settings.rate = +$('#grate').value; save(); toast('تم حفظ الإعدادات');
     const gd = (($('#gdrive') || {value:''}).value || '').trim(); if (gd && gd !== DRIVE.clientId) driveConnect(gd); },
