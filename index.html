@@ -4240,7 +4240,7 @@ const PARENT = {
     const pg = SETTINGS_PAGES.find(x => x[0] === cur);
     // شريط الصفحة الفرعية: رجوع وعنوان وحفظ (تظهر فقط داخل صفحة)
     return `<div id="setBar" class="card set-bar" ${cur ? '' : 'hidden'}><button class="btn ghost sm" data-act="setSec" data-s="">→ الإعدادات</button><div class="set-bar-t"><h3 id="setTitle">${pg ? pg[1] + ' ' + pg[2] : ''}</h3><small class="muted" id="setDesc">${pg ? pg[3] : ''}</small></div><button class="btn ok sm" data-act="saveSettings">💾 حفظ</button></div>
-    <div id="setHome" ${cur ? 'hidden' : ''}><div class="card set-hero"><h3>⚙️ الإعدادات</h3><p class="muted">اختاري القسم الذي تريدين تعديله، وكل قسم في صفحته الخاصة.</p></div>${cards}</div>
+    <div id="setHome" ${cur ? 'hidden' : ''}>${cards}</div>
     ${sec('display', `<div class="card"><h3>🎨 المظهر والأرقام</h3>
       <label class="chk"><input type="checkbox" data-change="darkMode" ${S.settings.dark ? 'checked' : ''}> 🌙 الوضع المظلم (للمساء)</label>
       <div class="row" style="margin-top:8px"><button class="btn ghost" data-act="colorPanel">🎨 الألوان ▾</button><span class="muted">لون النظام ولون الحرف المستهدف</span></div>
