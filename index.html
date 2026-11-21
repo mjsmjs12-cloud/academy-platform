@@ -328,7 +328,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 </style>
 </head>
 <body>
-<div id="brand"><span>🌸 أكاديمية أبو نصره 🌸</span><button id="backBtn" class="back-btn" data-act="back" hidden aria-label="الرجوع إلى الشاشة السابقة">→</button><button id="envBtn" class="env-btn" hidden aria-label="الرسائل"></button></div>
+<div id="brand"><span>🌸 أكاديمية أبو نصره 🌸</span><button id="backBtn" class="back-btn" data-act="back" hidden aria-label="الرجوع إلى الشاشة السابقة">→</button><button id="envBtn" class="env-btn" hidden aria-label="الرسائل"></button><button id="logoutBtn" class="back-btn" data-act="appLogout" hidden aria-label="خروج" title="خروج">🚪</button></div>
 <div id="app"><main id="view"></main></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast"></div>
@@ -2377,6 +2377,7 @@ function go(fn){
 function updateEnvelope(){
   saveSession(); // كل تنقل أو إجراء يحدّث الجلسة المحفوظة في هذا التبويب
   const bb = $('#backBtn'); if (bb) bb.hidden = !NAV.length;
+  const lo = $('#logoutBtn'); if (lo) lo.hidden = !(UI.parentOk || (UI.kid && CH(UI.kid)));
   const el = $('#envBtn'); if (!el) return;
   const kid = UI.kid && CH(UI.kid) && !CH(UI.kid).chatOff ? UI.kid : null;
   if (!kid && !UI.parentOk) { el.hidden = true; return; }
@@ -4700,6 +4701,8 @@ const ACT = {
     a.pin = h; save(); toast('تم تغيير رمزك ✅'); renderGuardianHome();
   },
   // خروج ولي الأمر من حسابه
+  // خروج عام من أي صفحة (ولي أمر، مدير، أو طفل): يمسح الجلسة في هذا التبويب
+  appLogout: () => { clearTimeout(parentTimer); UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} go(renderHome); },
   guardLogout: () => { UI.parentOk = false; UI.parentRole = null; UI.agentId = null; UI.kid = null; NAV.length = 0; CUR = null; go(renderHome); },
   // رجوع: يعود للشاشة السابقة، وإن لم توجد تُفتح صفحة الطفل الرئيسية
   back: () => {
