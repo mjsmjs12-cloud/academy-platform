@@ -3800,23 +3800,23 @@ const isGuardian = a => (a.perms || []).includes('kids');
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
   // صفحة إضافة فرد عائلة لولي أمر محدد تحل محل السجل كاملاً
+  // صفحة إضافة فرد عائلة أو تعديل ولي أمر تحل محل السجل كاملاً
   const openFor = UI.gmKidFor ? agents().find(a => a.id === UI.gmKidFor && isGuardian(a)) : null;
   if (openFor) return kidAddPageHtml(openFor);
+  const openEdit = UI.gmEditFor ? agents().find(a => a.id === UI.gmEditFor && isGuardian(a)) : null;
+  if (openEdit) return guardEditPageHtml(openEdit);
   const ags = agents().filter(isGuardian), kids = S.children;
-  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}<br><button class="btn ok sm" style="margin-top:4px" data-act="gmKidOpen" data-id="${esc(a.id)}">➕ إضافة فرد عائلة</button></td></tr>`; }).join('');
-  const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)} <button class="btn ghost sm" data-act="gmEdit" data-id="${esc(a.id)}">✏️ تعديل</button> <button class="btn sm danger" data-act="gmDel" data-id="${esc(a.id)}">🗑️ حذف</button></td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}<br><button class="btn ok sm" style="margin-top:4px" data-act="gmKidOpen" data-id="${esc(a.id)}">➕ إضافة فرد عائلة</button></td></tr>`; }).join('');
   return `<div class="card"><h3>📋 سجل المستخدمين</h3>
     <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
-    <h4>أولياء الأمور وعدد أطفالهم</h4>
-    <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th></tr>${gRows || '<tr><td colspan="5" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
-    <div class="card" style="margin-top:10px"><h4>➕ إضافة ولي أمر يدوياً</h4>
+    <div class="card" style="margin-top:0"><h4>➕ إضافة ولي أمر يدوياً</h4>
       <label class="f">الاسم</label><input id="gmName" maxlength="40" placeholder="اسم ولي الأمر">
       <label class="f" style="margin-top:6px">البريد الإلكتروني (اختياري)</label><input id="gmEmail" type="email" inputmode="email" placeholder="name@example.com">
       <label class="f" style="margin-top:6px">الرمز الخاص (4 أرقام على الأقل)</label><input id="gmCode" type="password" inputmode="numeric" autocomplete="off">
-      <label class="f" style="margin-top:6px">الأطفال المسندون</label><div class="row" style="flex-wrap:wrap;gap:6px">${kids.map(c => `<label class="chk"><input type="checkbox" class="gmKid" value="${esc(c.id)}"> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>
       <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="guardManualAdd">💾 إضافة ولي الأمر</button></div></div>
-    <h4>الأطفال وأولياؤهم</h4>
-    <div class="tbl-wrap"><table><tr><th>الطفل</th><th>عدد الأولياء</th><th>الأولياء</th></tr>${kRows || '<tr><td colspan="3" class="muted">لا يوجد أطفال بعد</td></tr>'}</table></div></div>`;
+    <h4>أولياء الأمور وعدد أطفالهم</h4>
+    <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th></tr>${gRows || '<tr><td colspan="5" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
+</div>`;
 }
 function agentsHtml(){
   const rows = agents().filter(a => !isGuardian(a)).map(a => `<div class="card" style="margin-top:8px">
@@ -5464,7 +5464,32 @@ const ACT = {
   },
   // فتح صفحة إضافة فرد عائلة لولي أمر، والرجوع منها إلى السجل
   gmKidOpen: d => { UI.gmKidFor = d.id; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
-  gmKidCancel: () => { UI.gmKidFor = null; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmKidCancel: () => { UI.gmKidFor = null; UI.gmEditFor = null; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  // تعديل ولي أمر: الاسم والبريد، والرمز الجديد اختياري (الفارغ يُبقي الحالي)
+  gmEdit: d => { UI.gmEditFor = d.id; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmEditSave: d => {
+    const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return toast('ولي الأمر غير موجود');
+    const name = (((document.querySelector('#geName')) || {}).value || '').trim().slice(0, 40);
+    const email = (((document.querySelector('#geEmail')) || {}).value || '').trim().toLowerCase();
+    const code = (((document.querySelector('#geCode')) || {}).value || '').trim();
+    if (!name) return toast('اكتبي اسم ولي الأمر');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('البريد الإلكتروني غير صحيح');
+    if (code && (code.length < 4 || !/^\d+$/.test(code))) return toast('الرمز 4 أرقام على الأقل');
+    if (code) {
+      const h = hashPin(code);
+      if (agents().some(x => x.id !== a.id && x.pin === h)) return toast('هذا الرمز مستخدم عند ولي أمر آخر، اختاري غيره');
+      a.pin = h;
+    }
+    a.name = name; a.email = email; UI.gmEditFor = null; save(); toast('تم الحفظ ✅');
+    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+  },
+  // حذف ولي أمر: تُلغى صلاحياته ورمزه، وتبقى أسماء أطفاله كما هي
+  gmDel: async d => {
+    const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return;
+    if (!(await confirmBox('حذف ولي الأمر ' + esc(a.name) + '؟', 'تُلغى صلاحياته ورمزه، وتبقى الأطفال كما هم.'))) return;
+    S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('حُذف ولي الأمر');
+    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+  },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
@@ -6349,6 +6374,14 @@ function lessonsAdminHtml(c){
 }
 // فهرس صفحات حقيبة بابا أحمد (https://ajh.sa/): لكل صفحة نسخة داخل التطبيق إن وُجدت، وإلا فتحها على الإنترنت من الموقع
 const HAKIBA_URL = 'https://ajh.sa/';
+// صفحة تعديل ولي أمر: الاسم والبريد والرمز الجديد (اختياري)
+function guardEditPageHtml(a){
+  return `<div class="card"><h3>✏️ تعديل ولي الأمر</h3>
+    <label class="f">الاسم</label><input id="geName" maxlength="40" autocomplete="off" value="${esc(a.name)}">
+    <label class="f" style="margin-top:6px">البريد الإلكتروني (اختياري)</label><input id="geEmail" type="email" inputmode="email" autocomplete="off" value="${esc(a.email || '')}">
+    <label class="f" style="margin-top:6px">رمز جديد (اتركيه فارغاً للإبقاء على الحالي)</label><input id="geCode" type="password" inputmode="numeric" autocomplete="new-password">
+    <div class="row" style="margin-top:10px;gap:6px"><button class="btn ok sm" data-act="gmEditSave" data-id="${esc(a.id)}">💾 حفظ</button><button class="btn ghost sm" data-act="gmKidCancel">← رجوع</button></div></div>`;
+}
 // صفحة إضافة فرد عائلة لولي أمر محدد: الاسم والرمز فقط، ويُسند الفرد إلى ولي الأمر تلقائياً
 function kidAddPageHtml(a){
   return `<div class="card"><h3>➕ إضافة فرد عائلة</h3><p class="muted">لولي الأمر: <b>${esc(a.name)}</b></p>
