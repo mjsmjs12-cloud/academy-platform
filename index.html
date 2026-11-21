@@ -2111,7 +2111,7 @@ async function makeRecovery(){
   S.settings.recHash = await sha256hex(raw); save();
   return raw.replace(/(.{4})(?=.)/g, '$1-');
 }
-const showRecovery = code => modal('🔑 رمز الاسترداد', `<p>احفظيه في مكان آمن. يُعرض مرة واحدة فقط، ويُستخدم إذا نسيتِ رمز ولي الأمر:</p><div style="font-size:22px;font-weight:700;letter-spacing:2px;direction:ltr">${code}</div>`, [{label:'تم الحفظ ✅', val:1}]);
+const showRecovery = code => modal('🔑 رمز الاسترداد', `<p>احفظيه في مكان آمن. يُعرض مرة واحدة فقط، ويُستخدم إذا نسيتِ رمز مدير النظام:</p><div style="font-size:22px;font-weight:700;letter-spacing:2px;direction:ltr">${code}</div>`, [{label:'تم الحفظ ✅', val:1}]);
 async function useRecovery(){
   if (!S.settings.recHash) return toast('لا يوجد رمز استرداد مسجّل على هذا الجهاز');
   const r = await modal('🔑 رمز الاسترداد', '<input style="text-align:center;direction:ltr;font-size:18px" placeholder="xxxx-xxxx-xxxx">', [{label:'تأكيد', val:1}, {label:'إلغاء', val:0, cls:'ghost'}]);
@@ -2123,7 +2123,7 @@ async function useRecovery(){
   renderLogin();
 }
 function securityHtml(){
-  return `<div class="card"><h3>🔑 استرداد رمز ولي الأمر</h3><p class="muted">إذا نسيتِ الرمز يُستخدم رمز الاسترداد لإلغائه وإنشاء رمز جديد. الرمز الذي أُنشئ قبل هذا التحديث لا يملك رمز استرداد، فأنشئي واحداً الآن.</p><button class="btn ghost sm" data-act="newRecovery">🔑 إنشاء رمز استرداد جديد</button></div>`;
+  return `<div class="card"><h3>🔑 استرداد رمز مدير النظام</h3><p class="muted">إذا نسيتِ رمز مدير النظام يُستخدم رمز الاسترداد لإلغائه وإنشاء رمز جديد. الرمز الذي أُنشئ قبل هذا التحديث لا يملك رمز استرداد، فأنشئي واحداً الآن.</p><button class="btn ghost sm" data-act="newRecovery">🔑 إنشاء رمز استرداد جديد</button></div>`;
 }
 // تشفير النسخة بكلمة سر: PBKDF2 (200 ألف تكرار) ثم AES-GCM
 const b64enc = u => { let s = ''; u.forEach(x => { s += String.fromCharCode(x); }); return btoa(s); };
