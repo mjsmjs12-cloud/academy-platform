@@ -55,14 +55,15 @@ async function sendCode(env, to, code) {
   if (!r.ok) { const e = new Error('mail-send'); e.status = 502; throw e; }
 }
 
+// الأغراض: login (دخول ولي الأمر بالبريد، ويُنشأ حسابه إن كان البريد جديداً)، register (تسجيل قديم)
+const PURPOSES = ['login', 'register'];
+
 const sameMail = (a, b) => String(a || '').trim().toLowerCase() === b;
 // وكيل مفعّل: غير موقوف، وغير منتهية مدته
 const agentActive = a => !a.off && (!a.until || a.until >= new Date().toISOString().slice(0, 10));
 
-// يحدد الهدف حسب الغرض: الطفل أو ولي الأمر للدخول، ولا شيء للتسجيل (الهدف يُنشأ في التطبيق)
+// الدخول بالبريد لولي الأمر فقط: الحساب المفعّل يدخل مباشرة، والبريد الجديد يُنشأ له حساب بعد التحقق
 function resolveLogin(data, email) {
-  const kid = (data.children || []).find(c => sameMail(c.email, email));
-  if (kid) return { childId: kid.id };
   const ag = ((data.settings && data.settings.agents) || []).find(a => sameMail(a.email, email) && agentActive(a));
   if (ag) return { agentId: ag.id };
   return null;
@@ -86,7 +87,7 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const f = String(body.f || ''), email = String(body.email || '').trim().toLowerCase();
   const action = String(url.searchParams.get('action') || '');
-  const purpose = body.purpose === 'register' ? 'register' : 'login';
+  const purpose = PURPOSES.includes(body.purpose) ? body.purpose : 'login';
   if (!FAMILY_RE.test(f)) return json({ error: 'رابط غير صالح' }, 400);
   if (!EMAIL_RE.test(email)) return json({ error: 'بريد غير صالح' }, 400);
 
@@ -101,7 +102,9 @@ export async function onRequest(context) {
     if (purpose === 'login' && settings.emailLogin !== 'on') return json({ error: 'الدخول بالبريد غير مفعّل' }, 403);
     if (purpose === 'register' && settings.guardReg !== 'on') return json({ error: 'التسجيل بالبريد غير مفعّل' }, 403);
     if (purpose === 'register' && emailUsed(data, email)) return json({ error: 'هذا البريد مسجّل مسبقاً، استخدميه للدخول' }, 409);
-    const target = purpose === 'login' ? resolveLogin(data, email) : { reg: true };
+    // بريد جديد لا يملكه أحد، والتسجيل مفعّل: يُرسل له رمز تأكيد ثم يُنشأ حسابه في التطبيق
+    const target = purpose === 'login' ? (resolveLogin(data, email) || (settings.guardReg === 'on' && !emailUsed(data, email) ? { reg: true } : null))
+      : { reg: true };
 
     if (action === 'send') {
       const sends = Number(await kv(cfg, 'incr', 'otpsend:' + id));
