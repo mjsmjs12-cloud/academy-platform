@@ -188,8 +188,9 @@ th{background:#fdf2f7;font-weight:800}
 label.f{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:8px 0 3px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .rec{padding:8px 10px;border-radius:12px;background:#fdf6fa;margin:6px 0;font-size:15px}
-.child-pick{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
-.child-pick button{border:2px solid var(--line);background:#fff;border-radius:12px;padding:7px 12px;font-weight:700;color:var(--ink)}
+/* قائمة الأطفال في صفحة ولي الأمر: اسم في كل سطر */
+.child-pick{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.child-pick button{border:2px solid var(--line);background:#fff;border-radius:12px;padding:7px 12px;font-weight:700;color:var(--ink);width:100%;text-align:right}
 .child-pick button.on{border-color:var(--pri);background:var(--soft)}
 .swatch{width:36px;height:36px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px var(--line)}
 .chk{display:inline-flex;gap:6px;align-items:center;margin-inline-end:12px;font-weight:700}
@@ -3797,7 +3798,7 @@ const isGuardian = a => (a.perms || []).includes('kids');
 // سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
 function userRecordHtml(){
   const ags = agents().filter(isGuardian), kids = S.children;
-  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr>`; }).join('');
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr><tr><td colspan="5"><div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted">إسناد الأطفال:</span>${kids.map(c => `<label class="chk"><input type="checkbox" data-change="gKid" data-id="${esc(a.id)}" data-k="${esc(c.id)}" ${a.kids.includes(c.id) ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('') || '<span class="muted">لا يوجد أطفال بعد</span>'}</div></td></tr>`; }).join('');
   const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
   return `<div class="card"><h3>📋 سجل المستخدمين</h3>
     <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
@@ -3949,8 +3950,7 @@ function renderParent(){
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
   ${UI.pMenuOpen
-    ? `<div class="card set-head"><h3>📋 الصفحات</h3></div>
-       <div id="pTabs">${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>`
+    ? `<div id="pTabs">${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>`
     : `<div class="card set-head"><button class="btn ghost sm" data-act="pMenu">📋 الصفحات</button><h3>${PARENT_LABELS[cur]}</h3></div>
        ${alertsHtml()}<div>${PARENT[cur]()}</div>`}`;
   focusMsgCard(); // إن جاء الفتح من إشعار رسالة
@@ -5440,7 +5440,7 @@ const ACT = {
     const h = hashPin(pin);
     if (h === S.settings.pin || agents().some(a => a.pin === h)) return toast('هذا الرمز مستخدم، اختاري غيره');
     const kids = [...document.querySelectorAll('.gmKid:checked')].map(x => x.value);
-    if (!kids.length) return toast('اختاري طفلاً واحداً على الأقل');
+    // الأطفال اختياريون عند الإنشاء، ويُسندون لاحقاً من سجل المستخدمين أو من ولي الأمر
     agents().push({id: 'ag' + Date.now().toString(36), name: name.slice(0, 40), email, pin: h, perms: AGENT_TEMPLATES.full.perms.slice(), until: '', kids, off: false});
     save(); toast('تمت إضافة ولي الأمر ✅');
     const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
@@ -5781,6 +5781,8 @@ const CHANGE = {
   },
   // صلاحيات الوكيل: مربع واحد يفتح صفحة أو يغلقها
   agentPerm: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const p = t.dataset.p; a.perms = a.perms.filter(x => x !== p); if (t.checked) a.perms.push(p); save(); toast('تم الحفظ ✅'); },
+  // إسناد طفل إلى ولي أمر من سجل المستخدمين، ثم تحديث الجدول فوراً
+  gKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); toast('تم الحفظ ✅'); },
   agentKid: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const k = t.dataset.k; a.kids = a.kids.filter(x => x !== k); if (t.checked) a.kids.push(k); save(); toast('تم الحفظ ✅'); },
   // حد الأطفال لولي أمر بعينه؛ الحقل الفارغ يعيده إلى الإعداد العام
   agentMax: t => { const a = agents().find(x => x.id === t.dataset.id); if (!a) return; const v = parseInt(t.value, 10); if (Number.isFinite(v) && v >= 1) a.maxKids = Math.min(50, v); else delete a.maxKids; save(); toast('تم الحفظ ✅'); },
