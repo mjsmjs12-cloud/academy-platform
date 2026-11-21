@@ -3763,6 +3763,18 @@ const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 // الحد الأقصى لعدد أطفال ولي الأمر: خاص بالوكيل إن حُدد، وإلا الإعداد العام (افتراضياً 5)
 const agentMaxKids = a => Number.isFinite(a.maxKids) ? a.maxKids : (S.settings.maxKidsDefault || 5);
+// سجل المستخدمين: كل ولي أمر وعدد أطفاله، وكل طفل وأولياؤه
+function userRecordHtml(){
+  const ags = agents(), kids = S.children;
+  const gRows = ags.map(a => { const list = a.kids.filter(id => CH(id)); return `<tr><td>👤 ${esc(a.name)}</td><td dir="ltr">${esc(a.email || '—')}</td><td><b>${list.length}</b> / ${agentMaxKids(a)}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td>${list.map(id => esc(CH(id).name)).join('، ') || '—'}</td></tr>`; }).join('');
+  const kRows = kids.map(c => { const g = guardiansOf(c.id); return `<tr><td>${esc(c.emoji)} ${esc(c.name)}</td><td>${g.length}</td><td>${g.map(n => esc(n)).join('، ') || '—'}</td></tr>`; }).join('');
+  return `<div class="card"><h3>📋 سجل المستخدمين</h3>
+    <p class="muted">أولياء الأمور: <b>${ags.length}</b> • الأطفال: <b>${kids.length}</b></p>
+    <h4>أولياء الأمور وعدد أطفالهم</h4>
+    <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th></tr>${gRows || '<tr><td colspan="5" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
+    <h4>الأطفال وأولياؤهم</h4>
+    <div class="tbl-wrap"><table><tr><th>الطفل</th><th>عدد الأولياء</th><th>الأولياء</th></tr>${kRows || '<tr><td colspan="3" class="muted">لا يوجد أطفال بعد</td></tr>'}</table></div></div>`;
+}
 function agentsHtml(){
   const rows = agents().map(a => `<div class="card" style="margin-top:8px">
     <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${a.off ? 'موقوف' : isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
@@ -3899,9 +3911,11 @@ function renderParent(){
   const cur = PARENT_LABELS[UI.ptab] && allowed(UI.ptab) ? UI.ptab : (firstTab || 'reports');
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
-  <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
-  <div id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>
-  ${alertsHtml()}<div>${PARENT[cur]()}</div>`;
+  ${UI.pMenuOpen
+    ? `<div class="card set-head"><h3>📋 الصفحات</h3></div>
+       <div id="pTabs">${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>`
+    : `<div class="card set-head"><button class="btn ghost sm" data-act="pMenu">📋 الصفحات</button><h3>${PARENT_LABELS[cur]}</h3></div>
+       ${alertsHtml()}<div>${PARENT[cur]()}</div>`}`;
   focusMsgCard(); // إن جاء الفتح من إشعار رسالة
 }
 // الكؤوس: تُستحق بالفوز في المسابقات، وبعدد النجوم، وبعدد المهارات المتقنة
@@ -4064,6 +4078,7 @@ const SETTINGS_PAGES = [
   ['health','🌿','التذكير والاستراحة','تذكير الاستراحة أثناء الدراسة','general'],
   ['security','🔐','الأمان ورمز المدير','رمز الدخول واسم مدير النظام','admin'],
   ['agents','👥','الوكلاء وصلاحياتهم','إنشاء الوكلاء وتحديد صلاحياتهم ومدتها','admin'],
+  ['users','📋','سجل المستخدمين','أولياء الأمور وعدد أطفال كل واحد','admin'],
   ['chat','💬','المجموعة والمراسلة','إضافة الأطفال إلى المجموعة الجماعية','admin'],
   ['backup','💾','النسخ الاحتياطي والمزامنة','رابط الدخول من الأجهزة والنسخ الاحتياطي','admin'],
   ['about','ℹ️','عن البرنامج والنصائح','معلومات البرنامج ونصائح للاستخدام','general']
@@ -4071,7 +4086,7 @@ const SETTINGS_PAGES = [
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
   ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']],
-  ['👑 إدارة مدير النظام', ['security','agents','chat','backup']]
+  ['👑 إدارة مدير النظام', ['security','agents','users','chat','backup']]
 ];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل طفل مسندة إليه، مع الوصول إلى تقريرها الكامل
@@ -4264,6 +4279,7 @@ const PARENT = {
       <label class="f">الحد الأقصى العام</label><input id="gmaxkids" type="number" min="1" max="50" value="${S.settings.maxKidsDefault || 5}">
       <p class="muted" style="font-size:13px">يُطبَّق على جميع أولياء الأمور، ويمكن تغييره لولي أمر بعينه من بطاقته في «الوكلاء».</p></div>${securityHtml()}`)}
     ${sec('agents', agentsHtml())}
+    ${sec('users', userRecordHtml())}
     ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
@@ -5340,7 +5356,8 @@ const ACT = {
   kidSec: d => { UI.kidSec = d.k; renderParent(); window.scrollTo(0, 0); },
   closeKid: () => { UI.kidPage = null; renderParent(); window.scrollTo(0, 0); },
   // ☰ يفتح قائمة صفحة ولي الأمر أو يغلقها دون إعادة رسم المحتوى
-  pMenu: () => { UI.pMenuOpen = !UI.pMenuOpen; const m = $('#pTabs'); if (m) m.hidden = !UI.pMenuOpen; },
+  // قائمة الصفحات تُفتح كشاشة مستقلة بدل القائمة المنسدلة
+  pMenu: () => { UI.pMenuOpen = !UI.pMenuOpen; renderParent(); },
   pchild: d => { UI.pchild = d.id; renderParent(); },
   printReport: () => doPrint(`<div class="ph"><h2>🌸 أكاديمية أبو نصره الذكية – تقرير الإنجاز 🌸</h2></div>` + compareHTML() + reportHTML(UI.pchild)),
   printCert: d => doPrint(certHTML(d.id || UI.pchild)),
