@@ -1003,7 +1003,15 @@ function P(cid){ const p = S.progress[cid] || (S.progress[cid] = {}); p.stars = 
 const CH = id => S.children.find(c => c.id === id);
 // صورة الطفل إن وُجدت، وإلا رمزها التعبيري
 function avatar(c, px){ return c && c.photo ? `<img class="ava" src="${c.photo}" alt="" style="width:${px}px;height:${px}px">` : `<span style="font-size:${Math.round(px * 0.8)}px;line-height:1">${esc(c ? c.emoji : '👧')}</span>`; }
+// اسم الأكاديمية: يُعدَّل من الإعدادات ← أسماء الصفحات والتبويبات، وإلا الاسم الافتراضي
+const APP = () => ((S.settings && S.settings.labels || {}).appName) || 'أكاديمية أبو نصره';
+function applyAppName(){
+  const n = APP(), b = document.querySelector('#brand > span');
+  if (b) b.textContent = '🌸 ' + n + ' 🌸';
+  document.title = n + ' الذكية';
+}
 function applyTheme(override){
+  applyAppName();
   document.documentElement.classList.toggle('dark', !!(S.settings && S.settings.dark)); // الوضع المظلم للمساء
   const r = document.documentElement.style, t = override || S.settings.theme || '#e75a8c';
   r.setProperty('--pri', t); r.setProperty('--soft', t + '26'); r.setProperty('--line', t + '33'); r.setProperty('--hl', S.settings.hl || '#2563eb');
@@ -2528,7 +2536,7 @@ function renderLogin(){
   CUR_CID = null; applyTheme();
   const guardianEmailBox = emailLoginHtml(); // بطاقة ولي الأمر بالبريد، مستقلة عن بطاقة الطفل
   view().innerHTML = `
-  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية أبو نصره الذكية</h1><div class="muted">أدخلي الاسم الأول والرمز الخاص بك</div></div>
+  <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>${APP()} الذكية</h1><div class="muted">أدخلي الاسم الأول والرمز الخاص بك</div></div>
   ${joinBoxHtml()}
   <div class="card" style="max-width:420px;margin:12px auto">
     <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="اسمك الأول كما هو في ملفك">
@@ -3897,6 +3905,7 @@ function namesAdminHtml(){
   const L = S.settings.labels || {};
   const field = (k, label, val) => `<label class="f">${label}</label><input data-change="labelSet" data-k="${k}" value="${esc(val)}">`;
   return `<div class="card"><h3>✏️ أسماء الصفحات والتبويبات</h3><p class="muted">اتركي الحقل فارغاً لإعادة الاسم الافتراضي.</p>`
+    + field('appName', 'اسم الأكاديمية (يظهر في الشريط العلوي والعناوين والشهادات)', L.appName || 'أكاديمية أبو نصره')
     + field('page', 'عنوان صفحة ولي الأمر', L.page || 'صفحة ولي الأمر')
     + field('inboxPage', 'عنوان صفحة الدردشات والتعاميم', L.inboxPage || 'صفحة الدردشات والتعاميم')
     + Object.keys(PARENT_LABELS).map(k => field(k, 'تبويب: ' + PARENT_LABELS[k], lbl(k))).join('')
@@ -4675,7 +4684,7 @@ function addImported(){
 
 // ===== الطباعة =====
 function doPrint(html){ $('#printArea').innerHTML = html; setTimeout(() => { try { window.print(); } catch (e) { toast('الطباعة غير متاحة هنا'); } }, 150); }
-const printHead = (title, c) => `<div class="ph"><h2>🌸 أكاديمية أبو نصره الذكية 🌸</h2><b>${title}</b><div>الاسم: ${esc(c.name)} &nbsp;|&nbsp; التاريخ: ${todayStr()}</div></div>`;
+const printHead = (title, c) => `<div class="ph"><h2>🌸 ${APP()} الذكية 🌸</h2><b>${title}</b><div>الاسم: ${esc(c.name)} &nbsp;|&nbsp; التاريخ: ${todayStr()}</div></div>`;
 // ورقة الخط والكتابة (للطباعة من إعدادات الطفل)
 function handwritingSheetHTML(cid){
   const c = CH(cid), F = focusOf(c), words = shuffle(makeCtx(c).words).slice(0, 5);
@@ -4703,7 +4712,7 @@ function mathHTML(cid){
 function certHTML(cid){
   const c = CH(cid), rs = allResults(cid), p = P(cid), t = timeStats(cid), mastered = Object.keys(SKILLS).filter(s => skillStatus(rs, s) === 'mastered');
   return `<div class="cert"><div style="font-size:60px">🏅</div><h1>شهادة تقدير وإنجاز</h1>
-    <p style="font-size:22px">تتشرف أكاديمية أبو نصره الذكية بمنح هذه الشهادة للبطلة</p>${c.photo ? `<div><img src="${c.photo}" style="width:170px;height:170px;border-radius:50%;object-fit:cover;border:6px solid var(--pri)"></div>` : ''}<div class="nm">${esc(c.emoji)} ${esc(c.name)} ${esc(c.emoji)}</div>
+    <p style="font-size:22px">تتشرف ${APP()} الذكية بمنح هذه الشهادة للبطلة</p>${c.photo ? `<div><img src="${c.photo}" style="width:170px;height:170px;border-radius:50%;object-fit:cover;border:6px solid var(--pri)"></div>` : ''}<div class="nm">${esc(c.emoji)} ${esc(c.name)} ${esc(c.emoji)}</div>
     <p style="font-size:20px">تقديراً لاجتهادها: <b>${p.stars}</b> نجمة ⭐ • <b>${minLabel(t.total)}</b> من التعلم ⏱️</p>
     ${mastered.length ? `<p style="font-size:18px"><b>المهارات المتقنة:</b><br>${mastered.map(s => SKILLS[s].n).join(' • ')}</p>` : '<p style="font-size:18px">على حرصها ومثابرتها في التدريب اليومي 🌱</p>'}
     <p style="font-size:18px;margin-top:30px">التاريخ: ${todayStr()} &nbsp;&nbsp;&nbsp; توقيع ولي الأمر: ______________</p></div>`;
@@ -5591,6 +5600,7 @@ const ACT = {
     const name = (($('#agName') || {}).value || '').trim(), pin = (($('#agPin') || {}).value || '').trim(), until = (($('#agUntil') || {}).value || '');
     if (!name) return toast('اكتبي اسم الوكيل');
     if (pin.length < 4) return toast('الرمز 4 أرقام على الأقل');
+    if (agents().some(a => normName(a.name) === normName(name))) return toast('يوجد وكيل بهذا الاسم، عدّليه بدل إضافة نسخة ثانية');
     const h = hashPin(pin);
     agents().push({id:'ag' + Date.now().toString(36), name, pin:h, perms:AGENT_TEMPLATES[d.t].perms.slice(), until, kids: []});
     save(); toast('تمت إضافة الوكيل ✅'); renderParent();
@@ -5605,7 +5615,7 @@ const ACT = {
   // قائمة الصفحات تُفتح كشاشة مستقلة بدل القائمة المنسدلة
   pMenu: () => { UI.pMenuOpen = !UI.pMenuOpen; renderParent(); },
   pchild: d => { UI.pchild = d.id; renderParent(); },
-  printReport: () => doPrint(`<div class="ph"><h2>🌸 أكاديمية أبو نصره الذكية – تقرير الإنجاز 🌸</h2></div>` + compareHTML() + reportHTML(UI.pchild)),
+  printReport: () => doPrint(`<div class="ph"><h2>🌸 ${APP()} الذكية – تقرير الإنجاز 🌸</h2></div>` + compareHTML() + reportHTML(UI.pchild)),
   printCert: d => doPrint(certHTML(d.id || UI.pchild)),
   printWS: () => doPrint(handwritingSheetHTML(UI.pchild)),
   printDict: () => doPrint(dictationHTML(UI.pchild)),
