@@ -529,6 +529,10 @@ async function loadState(){
         const b = JSON.parse((await idbGet('state_autobackup').catch(() => null)) || localStorage.getItem(BACKUP_KEY) || 'null');
         if (b && b.data) return {state: migrate(JSON.parse(b.data)), legacy};
       } catch (e2) {}
+      try {
+        const dd = JSON.parse((await idbGet('state_daily').catch(() => null)) || 'null');
+        if (dd && dd.data) return {state: migrate(JSON.parse(dd.data)), legacy};
+      } catch (e3) {}
     }
   }
   return {state: migrate(defaultState()), legacy: false};
@@ -577,11 +581,31 @@ function persistNow(json){
     catch (e) { if (!saveWarned) { saveWarned = true; toast('تعذّر الحفظ في الجهاز – صدّري نسخة احتياطية'); } }
   });
 }
+// نسخة يومية احتياطية: تُكتب مرة كل 24 ساعة، وتُستعمل تلقائياً إن تلف الحفظ الرئيسي
+const DAILY_MS = 24 * 3600 * 1000;
+function dailySnapshot(json){
+  let last = 0; try { last = +(localStorage.getItem('academyDailyAt') || 0); } catch (e) {}
+  if (Date.now() - last < DAILY_MS) return;
+  idbPut('state_daily', JSON.stringify({at: Date.now(), data: json}))
+    .then(() => { try { localStorage.setItem('academyDailyAt', String(Date.now())); } catch (e) {} })
+    .catch(() => {});
+}
+// حماية من الأخطاء غير المتوقعة: رسالة بدل توقف الشاشة، ولا تُمسّ البيانات
+let ERR_SHOWN = 0;
+function reportRuntimeError(err){
+  console.error(err);
+  if (Date.now() - ERR_SHOWN < 15000) return;
+  ERR_SHOWN = Date.now();
+  try { toast('حدث خطأ غير متوقع. إن تكرر، أعيدي فتح التطبيق'); } catch (e) {}
+}
+window.addEventListener('error', e => reportRuntimeError(e.error || e.message));
+window.addEventListener('unhandledrejection', e => reportRuntimeError(e.reason));
 // نسخة قبل المزامنة من Drive، تُستعاد بزر «استعادة النسخة السابقة»
 function keepPrev(json){ SAVE_CHAIN = SAVE_CHAIN.then(() => idbPut('state_prev', json)).then(() => { UI.hasPrev = true; }).catch(() => {}); }
 function save(){
   if (!READY) return; // لا حفظ قبل اكتمال التحميل حتى لا تُستبدل البيانات الحقيقية بالافتراضية
-  persistNow(JSON.stringify(S)); setLocalAt(Date.now()); driveSoon(); cloudSoon(); scanMessages();
+  const json = JSON.stringify(S);
+  persistNow(json); dailySnapshot(json); setLocalAt(Date.now()); driveSoon(); cloudSoon(); scanMessages();
 }
 // ===== إشعار الرسائل الجديدة: شعار منبثق أعلى الشاشة، والضغط عليه يفتح الرسالة =====
 let MSG_SEEN = null; // مفاتيح الرسائل والردود التي عُرفت من قبل، فلا يتكرر الإشعار
@@ -1898,7 +1922,7 @@ function kidSecHtml(c, sec){
         <label class="chk"><input type="checkbox" id="kstrict_${id}" ${c.strictOrder ? 'checked' : ''}> 🔒 منع التجاوز حتى تُتقن المهارة السابقة</label>
         <label class="chk"><input type="checkbox" id="khn_${id}" ${c.hideName ? 'checked' : ''}> 🙈 إخفاء الاسم من شاشات الطفل</label>
         <label class="chk"><input type="checkbox" id="kchat_${id}" ${c.chatOff ? '' : 'checked'}> 💬 السماح بالمراسلة (إلغاؤه يمنعها من الإرسال والاستقبال)</label>
-        ${EXT_PLATFORMS.map(([pid, title]) => `<label class="chk"><input type="checkbox" id="kext_${pid}_${id}" ${extHidden(c, pid) ? '' : 'checked'}> 🌐 إظهار بطاقة «${title}» في شاشته الرئيسية</label>`).join('')}
+        ${extPlatforms().map(([pid, title]) => `<label class="chk"><input type="checkbox" id="kext_${pid}_${id}" ${extHidden(c, pid) ? '' : 'checked'}> 🌐 إظهار بطاقة «${title}» في شاشته الرئيسية</label>`).join('')}
         
       </div>
       <div class="row" style="margin-top:12px">${S.children.length > 1 ? `<button class="btn sm danger" data-act="delKid" data-id="${id}">حذف الملف</button>` : ''}</div>${save}</div>`;
@@ -2688,7 +2712,7 @@ function renderChild(id){
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="wr"><span class="em">✏️</span>الكتابة والإملاء</button>
     <button class="big-tile" data-act="subject" data-id="${esc(id)}" data-sub="kn"><span class="em">🌍</span>عالم المعرفة</button>
   </div>
-  ${EXT_PLATFORMS.some(([pid]) => !extHidden(c, pid)) ? `<div class="tiles-grid">${EXT_PLATFORMS.filter(([pid]) => !extHidden(c, pid)).map(([, title, url]) => `<a class="big-tile" href="${url}" target="_blank" rel="noopener"><span class="em">🌐</span>${esc(title)}</a>`).join('')}</div>` : ''}
+  ${extBlocksHtml(c)}
   <div class="tiles-grid">
     <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
     <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
@@ -3874,7 +3898,7 @@ function renderGuardianHome(){
     const [em, ...rest] = PARENT_LABELS[t].split(' ');
     return `<button class="big-tile" data-act="ptab" data-t="${t}"><span class="em">${em}</span>${esc(rest.join(' '))}</button>`;
   }).join('');
-  const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span><br>${presenceHtml(c)}</span><button class="btn sm ghost" ${EXT_PLATFORMS.map(([pid, title]) => agentAllows('kids') ? `<button class="btn sm ${extHidden(c, pid) ? 'ghost' : 'ok'}" data-act="gExtToggle" data-id="${esc(c.id)}" data-p="${pid}">🌐 ${esc(title)}: ${extHidden(c, pid) ? 'مخفية' : 'ظاهرة'}</button>` : '').join('')}<button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
+  const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span><br>${presenceHtml(c)}</span><button class="btn sm ghost" ${extPlatforms().map(([pid, title]) => agentAllows('kids') ? `<button class="btn sm ${extHidden(c, pid) ? 'ghost' : 'ok'}" data-act="gExtToggle" data-id="${esc(c.id)}" data-p="${pid}">🌐 ${esc(title)}: ${extHidden(c, pid) ? 'مخفية' : 'ظاهرة'}</button>` : '').join('')}<button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
   view().innerHTML = `
   <div class="row between"><h2>🏠 لوحة ولي الأمر</h2><span class="muted">${esc(a ? a.name : '')}</span></div>
   ${alertsHtml()}
@@ -4082,12 +4106,13 @@ const SETTINGS_PAGES = [
   ['agents','👥','الوكلاء وصلاحياتهم','إنشاء الوكلاء وتحديد صلاحياتهم ومدتها','admin'],
   ['users','📋','سجل المستخدمين','أولياء الأمور وعدد أطفال كل واحد','admin'],
   ['chat','💬','المجموعة والمراسلة','إضافة الأطفال إلى المجموعة الجماعية','admin'],
+  ['links','🔗','الروابط والبطاقات','روابط خارجية تظهر كبطاقات في الشاشة الرئيسية للأطفال','admin'],
   ['backup','💾','النسخ الاحتياطي والمزامنة','رابط الدخول من الأجهزة والنسخ الاحتياطي','admin'],
   ['about','ℹ️','عن البرنامج والنصائح','معلومات البرنامج ونصائح للاستخدام','general']
 ];
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
-  ['👑 إدارة مدير النظام', ['security','agents','users','chat','backup']],
+  ['👑 إدارة مدير النظام', ['security','agents','users','chat','links','backup']],
   ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']]
 ];
 const PARENT = {
@@ -4292,6 +4317,7 @@ const PARENT = {
     ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
+    ${sec('links', linksAdminHtml())}
     ${sec('about', PARENT.tips())}
     `;
   },
@@ -4558,7 +4584,8 @@ function addImported(){
 // ===== الطباعة =====
 function doPrint(html){ $('#printArea').innerHTML = html; setTimeout(() => { try { window.print(); } catch (e) { toast('الطباعة غير متاحة هنا'); } }, 150); }
 const printHead = (title, c) => `<div class="ph"><h2>🌸 أكاديمية أبو نصره الذكية 🌸</h2><b>${title}</b><div>الاسم: ${esc(c.name)} &nbsp;|&nbsp; التاريخ: ${todayStr()}</div></div>`;
-function worksheetHTML(cid){
+// ورقة الخط والكتابة (للطباعة من إعدادات الطفل)
+function handwritingSheetHTML(cid){
   const c = CH(cid), F = focusOf(c), words = shuffle(makeCtx(c).words).slice(0, 5);
   return printHead('ورقة الخط والكتابة', c) +
     F.map(l => `<div class="ws-row"><div class="ws-model">${l}</div><div class="ws-trace">${l}</div><div class="ws-trace">${l}</div><div class="ws-trace">${l}</div><div class="ws-empty"></div><div class="ws-empty"></div><div class="ws-empty"></div></div>`).join('') +
@@ -4728,9 +4755,23 @@ const ACT = {
   // ولي الأمر يضيف طفلاً جديداً ويُسنده إلى نفسه، برمز دخول خاص به
   gAddKidOpen: () => { UI.gAddKid = true; renderGuardianHome(); },
   // ولي الأمر يُظهر أو يخفي بطاقة المنصة لأطفاله فقط، ويحتاج صلاحية الأطفال
+  // إضافة رابط وحذفه من صفحة «الروابط والبطاقات»، مع تحديث القسم في مكانه دون إعادة فتح الصفحة
+  lkAdd: () => {
+    const t = (((document.querySelector('#lkTitle')) || {}).value || '').trim(), u = (((document.querySelector('#lkUrl')) || {}).value || '').trim();
+    const sec = (((document.querySelector('#lkSec')) || {}).value || '').trim();
+    if (!t) return toast('اكتبي عنوان البطاقة');
+    if (!sec) return toast('اختاري القسم أو اكتبي اسم قسم جديد');
+    if (!/^https:\/\/\S+$/i.test(u)) return toast('الرابط يجب أن يبدأ بـ https://');
+    S.settings.extLinks = [...(S.settings.extLinks || []), {id: 'x' + Date.now().toString(36), title: t.slice(0, 60), url: u, section: sec.slice(0, 40)}];
+    save(); document.querySelector('.setsec[data-s="links"]').innerHTML = linksAdminHtml(); toast('تمت إضافة البطاقة');
+  },
+  lkDel: d => {
+    S.settings.extLinks = (S.settings.extLinks || []).filter(x => x.id !== d.id);
+    save(); document.querySelector('.setsec[data-s="links"]').innerHTML = linksAdminHtml();
+  },
   gExtToggle: d => {
     const a = currentAgent(), c = CH(d.id);
-    if (!c || !a || !agentAllows('kids') || !a.kids.includes(c.id) || !EXT_PLATFORMS.some(([pid]) => pid === d.p)) return;
+    if (!c || !a || !agentAllows('kids') || !a.kids.includes(c.id) || !extPlatforms().some(([pid]) => pid === d.p)) return;
     const rest = (c.extOff || []).filter(x => x !== d.p);
     c.extOff = extHidden(c, d.p) ? rest : [...rest, d.p]; save(); renderGuardianHome();
   },
@@ -5388,7 +5429,7 @@ const ACT = {
   pchild: d => { UI.pchild = d.id; renderParent(); },
   printReport: () => doPrint(`<div class="ph"><h2>🌸 أكاديمية أبو نصره الذكية – تقرير الإنجاز 🌸</h2></div>` + compareHTML() + reportHTML(UI.pchild)),
   printCert: d => doPrint(certHTML(d.id || UI.pchild)),
-  printWS: () => doPrint(worksheetHTML(UI.pchild)),
+  printWS: () => doPrint(handwritingSheetHTML(UI.pchild)),
   printDict: () => doPrint(dictationHTML(UI.pchild)),
   printMath: () => doPrint(mathHTML(UI.pchild)),
   printNotes: () => doPrint(notesPrintHTML(UI.pchild)),
@@ -5537,7 +5578,7 @@ const ACT = {
     if (has('ken')) c.enRoutine = $('#ken_' + c.id).checked;
     if (has('khn')) c.hideName = $('#khn_' + c.id).checked;
     if (has('kchat')) c.chatOff = !$('#kchat_' + c.id).checked;
-    EXT_PLATFORMS.forEach(([pid]) => { if (has('kext_' + pid)) { const on = $('#kext_' + pid + '_' + c.id).checked, rest = (c.extOff || []).filter(x => x !== pid); c.extOff = on ? rest : [...rest, pid]; } });
+    extPlatforms().forEach(([pid]) => { if (has('kext_' + pid)) { const on = $('#kext_' + pid + '_' + c.id).checked, rest = (c.extOff || []).filter(x => x !== pid); c.extOff = on ? rest : [...rest, pid]; } });
     if (has('kemail')) c.email = v('kemail').trim().toLowerCase();
     if (has('kcode') && v('kcode').trim()) {
       if (v('kcode').trim().length < 4) toast('رمز الدخول 4 خانات على الأقل، لم يُغيَّر الرمز');
@@ -6239,7 +6280,31 @@ function lessonsAdminHtml(c){
 // فهرس صفحات حقيبة بابا أحمد (https://ajh.sa/): لكل صفحة نسخة داخل التطبيق إن وُجدت، وإلا فتحها على الإنترنت من الموقع
 const HAKIBA_URL = 'https://ajh.sa/';
 // المنصات الخارجية: بطاقة لكل منصة على الشاشة الرئيسية للطفل، ويخفيها مدير النظام أو ولي الأمر لأطفاله (c.extOff = المنصات المخفية)
-const EXT_PLATFORMS = [['jaza', 'منصة جزاء', 'https://jaza.jzaa35677.workers.dev/'], ['kg', 'منصة KG1 وKG2', 'https://billowing-haze-709d.ovahmedjazs.workers.dev/']];
+// صفحة مدير النظام: إضافة رابط خارجي (عنوان + رابط) وحذفه، وكل رابط يصبح بطاقة للأطفال
+function linksAdminHtml(){
+  const list = S.settings.extLinks || [];
+  return `<div class="card"><h3>🔗 الروابط والبطاقات</h3><p class="muted" style="font-size:13px">كل رابط يظهر بطاقة في الشاشة الرئيسية للأطفال. يمكن إخفاؤه لكل طفل من إعداداته، أو من ولي أمره لأطفاله.</p>
+    <label class="f">عنوان البطاقة</label><input id="lkTitle" maxlength="60" placeholder="مثال: منصة القراءة">
+    <label class="f" style="margin-top:6px">الرابط</label><input id="lkUrl" inputmode="url" placeholder="https://...">
+    <label class="f" style="margin-top:6px">القسم الذي تظهر فيه البطاقة</label><input id="lkSec" list="lkSecList" maxlength="40" placeholder="اختاري قسماً قديماً أو اكتبي اسم قسم جديد"><datalist id="lkSecList">${[...new Set(extPlatforms().map(p => p[3]).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="lkAdd">➕ إضافة البطاقة</button></div>
+    <div style="margin-top:10px">${list.length ? list.map(x => `<div class="row between" style="padding:6px 0;border-bottom:1px dashed #f0b6cc;gap:8px;flex-wrap:wrap"><span>🌐 ${esc(x.title)} <span class="muted" style="font-size:12px">${esc(x.section || 'بدون قسم')} • ${esc(x.url)}</span></span><button class="btn sm ghost" data-act="lkDel" data-id="${esc(x.id)}">🗑️ حذف</button></div>`).join('') : '<p class="muted">لا توجد روابط مضافة.</p>'}</div></div>`;
+}
+// كل منصة: [المعرّف، العنوان، الرابط، القسم (null = الصف العام للبطاقات)]
+// المنصات المدمجة أولاً، ثم الروابط التي يضيفها مدير النظام من صفحة «الروابط والبطاقات»
+const BUILTIN_EXT = [['jaza', 'منصة جزاء', 'https://jaza.jzaa35677.workers.dev/', null], ['kg', 'منصة KG1 وKG2', 'https://billowing-haze-709d.ovahmedjazs.workers.dev/', null], ['games', 'فتح منصة الألعاب', 'https://jolly-limit-0945.jzaa35677.workers.dev/', 'منصة الألعاب'], ['g-dainty', 'بلاط الإملاء', 'https://dainty-empanada-28483e.netlify.app/', 'منصة الألعاب'], ['g-balloons', 'بالونات الحروف 3D', 'https://singular-khapse-fe0daf.netlify.app/', 'منصة الألعاب'], ['g-madd', 'ألعاب المدود', 'https://plain-wave-e041.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-similar', 'تحدّي الحروف المتشابهة', 'https://fancy-morning-f7ff.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-bobo', 'بوبو يتعلم القراءة', 'https://misty-tree-c633.allmail199.workers.dev/', 'منصة الألعاب'], ['g-hero', 'بطل مهارات لغتي', 'https://go199.netlify.app/', 'منصة الألعاب'], ['g-challenge', 'تحدي الحروف', 'https://ah1999.netlify.app/', 'منصة الألعاب'], ['g-shapes', 'أشكال الحرف', 'https://sh199.netlify.app/', 'منصة الألعاب'], ['g-invasion', 'غزو الحروف', 'https://fd199.netlify.app/', 'منصة الألعاب'], ['g-words', 'تحدي الكلمات والجملة', 'https://k199.netlify.app/', 'منصة الألعاب'], ['g-analysis', 'تحدي تحليل الكلمات', 'https://wa199.netlify.app/', 'منصة الألعاب'], ['g-path', 'طريق التأسيس', 'https://ro199.netlify.app/', 'منصة الألعاب'], ['g-arena', 'ساحة التحدي', 'https://th199.netlify.app/', 'منصة الألعاب']];
+// بطاقات المنصات في الشاشة الرئيسية للطفل: البطاقات بلا قسم في صف عام، وكل قسم يظهر تحت عنوانه
+function extBlocksHtml(c){
+  const tile = ([, title, url]) => `<a class="big-tile" href="${esc(url)}" target="_blank" rel="noopener"><span class="em">🌐</span>${esc(title)}</a>`;
+  const vis = extPlatforms().filter(([pid]) => !extHidden(c, pid));
+  const general = vis.filter(p => !p[3]);
+  let h = general.length ? `<div class="tiles-grid">${general.map(tile).join('')}</div>` : '';
+  [...new Set(vis.map(p => p[3]).filter(Boolean))].forEach(sec => {
+    h += `<h4 class="grp">${esc(sec)}</h4><div class="tiles-grid">${vis.filter(p => p[3] === sec).map(tile).join('')}</div>`;
+  });
+  return h;
+}
+const extPlatforms = () => [...BUILTIN_EXT, ...(S.settings.extLinks || []).map(x => [x.id, x.title, x.url, x.section || null])];
 const extHidden = (c, pid) => (c.extOff || []).includes(pid);
 const HAKIBA_CATS = [["المراحل", [["مسبار بابا أحمد للقراءة", null, "https://mb199.netlify.app/"]]], ["الوعي الصوتي", [["تدريب الوعي الصوتي", "bl-phono"], ["فيديو ما قبل الحروف", null]]], ["الروضة والصف الأول", [["منصة KG1 وKG2", "bl-kg"], ["منصة كتاب لغتي للصف الأول", null], ["حرفي الجميل (تتبع الحروف)", "bl-kg-writing"], ["مركز الحروف", null], ["منصة حروفي", null], ["مختبر التحليل الصوتي", "bl-phono"], ["حدائق القراءة", "bl-fluency"], ["الحروف فيديو", null], ["رحلة أنا أفهم", "bl-comprehension"]]], ["الإملاء والتقويم", [["مسار الإملاء", "bl-spelling"], ["صياد الظواهر الإملائية", "bl-spelling"], ["مسبار بابا أحمد للقراءة", null]]], ["الصف الثاني", [["نصوص الصف الثاني التفاعلية", null]]], ["علاج ضعف القراءة والإملاء", [["النصوص العلاجية التفاعلية", null], ["علاج ضعف القراءة", "bl-remedial-reading"], ["علاج ضعف الإملاء", "bl-remedial-spelling"], ["8 خطوات عملية", "bl-remedial-reading"], ["فيديوهات علاج ضعف القراءة", null]]], ["الألعاب التعليمية", [["بالونات الحروف 3D", "bl-game"], ["بوبو يتعلم القراءة", null], ["تحدّي الحروف المتشابهة", null], ["ألعاب المدود", null], ["بطل مهارات لغتي", null], ["تحدي الحروف", null], ["أشكال الحرف", null], ["تحدي تحليل الكلمات", null], ["تحدي الكلمات والجملة", null], ["غزو الحروف", null], ["طريق التأسيس", null], ["ساحة التحدي", null]]], ["قوائم الفيديو", [["قوائم فيديو التأسيس (ثماني قوائم)", null]]], ["ملفات PDF والكراسات", [["كراسة الحروف", "bl-worksheet"], ["كراسة أنا أقرأ", null], ["خطة علاج سريعة", "bl-remedial-reading"]]]];
 function renderHakiba(id){
