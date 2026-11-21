@@ -266,6 +266,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri);box
 .set-menu .set-item{border-radius:14px}
 .set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:6px 0 14px}
 .set-card{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid var(--line,#eadfe6);border-radius:16px;background:#fff;text-align:right;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.set-card.on{background:var(--soft,#fdf2f7);border-color:var(--hl,#2563eb)}
 .set-card:hover,.set-card:focus-visible{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
 .set-ico{font-size:26px;width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:rgba(0,0,0,.04);flex:none}
 .set-txt{flex:1;display:flex;flex-direction:column;gap:2px}
@@ -3829,6 +3830,13 @@ const PARENT_GROUPS = [
   ['⚙️ النظام', ['settings']]
 ];
 const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'📥 الرسائل والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+// وصف قصير لكل بطاقة في قائمة صفحة ولي الأمر (يظهر تحت العنوان كما في بطاقات الإعدادات)
+const PARENT_DESC = {dash:'ملخص أطفالك وتنبيهاتهم', inbox:'الرسائل الواردة والتعميم', kids:'ملفات الأطفال وإعداداتهم', reports:'تقارير الوقت والإنجاز', notes:'ملاحظات تُحفظ لكل طفل', words:'إضافة الكلمات ومراجعتها', adhkar:'الأذكار والأدعية للأطفال', content:'الأسماء والأنبياء للأطفال', yt:'قنوات يوتيوب المعتمدة', tg:'قصص مصورة بصيغة PDF', print:'طباعة التقارير والأوراق', settings:'إعدادات البرنامج والحساب'};
+// يفصل الأيقونة (أول كلمة) عن عنوان البطاقة
+const parentCard = (k, on) => {
+  const s = PARENT_LABELS[k], i = s.indexOf(' ');
+  return `<button class="set-card ${on ? 'on' : ''}" data-act="ptab" data-t="${k}"><span class="set-ico">${s.slice(0, i)}</span><span class="set-txt"><b>${s.slice(i + 1)}</b><small>${PARENT_DESC[k] || ''}</small></span><span class="set-go">‹</span></button>`;
+};
 // الشاشة الرئيسية لولي الأمر: تنبيهات أطفاله، وصفحاته المسموحة، وتغيير رموز أطفاله المسندين إليه
 function renderGuardianHome(){
   applyTheme(); ensureActivity();
@@ -3877,7 +3885,7 @@ function renderParent(){
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>صفحة ولي الأمر</h2></div>
   <div class="card set-head"><button class="btn ghost" data-act="pMenu" aria-label="القائمة">☰</button><h3>${PARENT_LABELS[cur]}</h3></div>
-  <div class="card set-menu" id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4>` + keys.map(k => `<button class="set-item ${cur === k ? 'on' : ''}" data-act="ptab" data-t="${k}">${PARENT_LABELS[k]}</button>`).join('')).join('')}</div>
+  <div id="pTabs" ${UI.pMenuOpen ? '' : 'hidden'}>${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>
   ${alertsHtml()}<div>${PARENT[cur]()}</div>`;
   focusMsgCard(); // إن جاء الفتح من إشعار رسالة
 }
