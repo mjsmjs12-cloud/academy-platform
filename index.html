@@ -3864,8 +3864,22 @@ function userRecordHtml(){
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th><th>الإجراءات</th></tr>${gRows || '<tr><td colspan="6" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
 </div>`;
 }
+// سجل الوكلاء: كل وكيل أُنشئ (دون أولياء الأمور). الضغط على الاسم يعرض صلاحياته، وزر التعديل يفتح بطاقته أسفل السجل
+function agentRecordHtml(){
+  const ags = agents().filter(a => !isGuardian(a));
+  const fmtUntil = s => { if (!s) return 'دائمة'; const [y, m, d] = s.split('-'); return `${m}/${d}/${y}`; }; // عرض التاريخ mm/dd/yyyy
+  const rows = ags.map(a => {
+    const perms = AGENT_PERMS.filter(([k]) => (a.perms || []).includes(k));
+    // تفاصيل الصلاحيات تظهر تحت الصف عند الضغط على الاسم
+    const detail = UI.agOpen === a.id ? `<tr><td colspan="5" style="background:#fff7fa;font-size:13px"><b>الصلاحيات:</b> ${perms.length ? perms.map(([, l]) => `<span class="pill" style="margin:2px">${esc(l)}</span>`).join(' ') : 'لا توجد صلاحيات'}</td></tr>` : '';
+    return `<tr><td><button class="btn ghost sm" style="padding:2px 6px;font-size:12px;white-space:nowrap" data-act="agView" data-id="${esc(a.id)}">👤 ${esc(a.name)}</button></td><td dir="ltr">${esc(a.email || '—')}</td><td>${a.off ? 'موقوف' : isActive(a) ? 'نشط' : 'منتهٍ'}</td><td dir="ltr">${esc(fmtUntil(a.until))}</td><td style="white-space:nowrap"><div style="display:flex;flex-direction:column;gap:4px;align-items:center"><button class="btn sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agEdit" data-id="${esc(a.id)}">${UI.agEdit === a.id ? '✖️ إغلاق' : '✏️ تعديل'}</button><button class="btn ghost sm" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentToggle" data-id="${esc(a.id)}">${a.off ? '✅ تفعيل' : '⛔ إيقاف'}</button><button class="btn sm danger" style="padding:3px 6px;font-size:11px;white-space:nowrap" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء</button></div></td></tr>${detail}`;
+  }).join('');
+  return `<div class="card" style="margin-top:10px"><h4>📋 سجل الوكلاء</h4>
+    <p class="muted">الوكلاء المنشأون: <b>${ags.length}</b> • اضغطي على اسم الوكيل لعرض صلاحياته</p>
+    <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الحالة</th><th>تنتهي</th><th>الإجراءات</th></tr>${rows || '<tr><td colspan="5" class="muted">لا يوجد وكلاء بعد</td></tr>'}</table></div></div>`;
+}
 function agentsHtml(){
-  const rows = agents().filter(a => !isGuardian(a)).map(a => `<div class="card" style="margin-top:8px">
+  const rows = agents().filter(a => !isGuardian(a) && a.id === UI.agEdit).map(a => `<div class="card" style="margin-top:8px">
     <div class="row between"><b>👤 ${esc(a.name)}</b><span class="pill">${a.off ? 'موقوف' : isActive(a) ? (a.until ? 'حتى ' + esc(a.until) : 'دائمة') : 'منتهية'}</span></div>
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><label class="f" style="margin:0">📧 البريد <input type="email" data-change="agentEmail" data-id="${esc(a.id)}" value="${esc(a.email || '')}" style="width:200px"></label>
       <button class="btn sm ghost" data-act="agentToggle" data-id="${esc(a.id)}">${a.off ? '✅ تفعيل الحساب' : '⛔ إيقاف الحساب'}</button></div>
@@ -3879,13 +3893,14 @@ function agentsHtml(){
       <button class="btn sm ghost" data-act="agentDel" data-id="${esc(a.id)}">🗑️ إلغاء الوكالة</button></div></div>`).join('');
   return `<div class="card"><h3>👥 الوكلاء (أولياء الأمور)</h3>
     <p class="muted">كل وكيل له رمز خاص وصلاحيات تحددينها. لا تشمل الإعدادات والرمز والنسخ الاحتياطي.</p>
-    ${rows || '<p class="muted">لا يوجد وكلاء بعد</p>'}
     <div class="card" style="margin-top:10px"><h4>➕ وكيل جديد</h4>
       <label class="f">من المستخدمين الحاليين (اختياري)</label><select id="agPick" data-change="agPick"><option value="">— مستخدم جديد —</option>${agents().filter(isGuardian).map(a => `<option value="${esc(a.name)}">👤 ${esc(a.name)}</option>`).join('')}</select>
       <label class="f">الاسم</label><input id="agName" placeholder="مثال: الجدة، المعلّمة" autocomplete="off">
       <label class="f">الرمز الخاص (4 أرقام على الأقل)</label><input id="agPin" type="password" inputmode="numeric" autocomplete="new-password">
       <label class="f">تنتهي في (اتركيه فارغاً للدائمة)</label><input id="agUntil" type="date" lang="en-US">
-      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).filter(([k]) => k !== 'full').map(([k, t]) => `<button class="btn sm" data-act="agentAdd" data-t="${k}">➕ ${t.label}</button>`).join('')}</div></div></div>`;
+      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${Object.entries(AGENT_TEMPLATES).filter(([k]) => k !== 'full').map(([k, t]) => `<button class="btn sm" data-act="agentAdd" data-t="${k}">➕ ${t.label}</button>`).join('')}</div></div>
+    ${agentRecordHtml()}
+    <div id="agEditBox">${rows}</div></div>`;
 }
 // واجهة ربط العائلتين لمدير النظام: اختيار وليَّي أمر ونوع الربط، مع إيقاف أو حذف
 function linksHtml(){
@@ -5607,6 +5622,9 @@ const ACT = {
   },
   agentTpl: d => { const a = agents().find(x => x.id === d.id), t = AGENT_TEMPLATES[d.t]; if (!a || !t) return; a.perms = t.perms.slice(); save(); toast('تم تطبيق القالب ✅'); renderParent(); },
   agentDel: d => { S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('أُلغيت الوكالة'); renderParent(); },
+  // سجل الوكلاء: الضغط على الاسم يعرض صلاحياته، وزر التعديل يفتح بطاقة الوكيل أسفل السجل
+  agView: d => { UI.agOpen = UI.agOpen === d.id ? null : d.id; renderParent(); },
+  agEdit: d => { UI.agEdit = UI.agEdit === d.id ? null : d.id; renderParent(); if (UI.agEdit) document.querySelector('#agEditBox')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
   ptab: d => { UI.ptab = d.t; UI.editWord = null; UI.kidPage = null; UI.pMenuOpen = false; renderParent(); },
   openKid: d => { UI.kidPage = d.id; UI.kidSec = 'profile'; renderParent(); window.scrollTo(0, 0); },
   kidSec: d => { UI.kidSec = d.k; renderParent(); window.scrollTo(0, 0); },
