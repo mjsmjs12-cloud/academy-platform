@@ -2705,11 +2705,8 @@ function renderChild(id){
     <div class="row" style="justify-content:center;gap:8px;margin-top:10px">${THEMES.map(t => `<button class="swatch" style="background:${t};border-width:${t === c.color ? '4px' : '3px'}" data-act="profileColor" data-id="${esc(id)}" data-c="${t}"></button>`).join('')}</div></div>` : ''}
   <div class="hero" style="background:linear-gradient(135deg,${esc(c.color)},#c73f70)"><div>${avatar(c, 90)}</div><h1>أهلاً ${esc(kCall(c))}!</h1>
   <div class="muted">اليوم ${plan.day}: ${esc(plan.title)}${due ? ` • ${due} عناصر للمراجعة` : ''}</div></div>
-  ${extBlocksHtml(c)}
+  ${favTopHtml(c)}
   ${UI.kidStats ? kpis([kpi('⭐', 'نجوم', fmt(p.stars), 'c2'), kpi('⏱️', 'دقائق اليوم', fmt(ts.today), 'c4'), kpi('🏅', 'مهارات متقنة', fmt(mastered), 'c3'), due ? kpi('🔁', 'للمراجعة', fmt(due), 'c1') : kpi('🎯', 'المراجعة', 'ممتاز', 'c1')]) : ''}
-  <div class="tiles-grid">
-    <button class="big-tile main" style="background:${esc(c.color)}" data-act="daily" data-id="${esc(id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>
-  </div>
   <p class="muted center">${plan.parts.map(([n, k]) => `${n} (${k})`).join(' ← ')}</p>
   <div class="tiles-grid">
     <button class="big-tile" data-act="arLab" data-id="${esc(id)}"><span class="em">🔤</span>العربية والقراءة</button>
@@ -2721,8 +2718,11 @@ function renderChild(id){
   <div class="tiles-grid">
     <button class="big-tile" data-act="library" data-id="${esc(id)}"><span class="em">📚</span>مكتبتي التعليمية</button>
     <button class="big-tile" data-act="games" data-id="${esc(id)}"><span class="em">🎮</span>الألعاب والتحديات</button>
-    <button class="big-tile" data-act="smart" data-id="${esc(id)}"><span class="em">🧠</span>المعلمة الذكية</button>${favTilesHtml(c)}
+    ${favIntOf(c).includes('smart') ? '' : intTileHtml(c, 'smart')}
+    ${favIntOf(c).includes('daily') ? '' : intTileHtml(c, 'daily')}
+    ${extGeneralTilesHtml(c)}
   </div>
+  ${extBlocksHtml(c)}
   ${extBlocksHtml(c, true)}
 `;
 }
@@ -4773,6 +4773,13 @@ const ACT = {
     c.favExt = f.includes(d.p) ? f.filter(x => x !== d.p) : [...f, d.p];
     save(); renderChild(c.id);
   },
+  // الطفل يضيف المعلمة الذكية أو درس اليوم إلى المفضلة أو يزيلهما (القيمة الافتراضية: كلاهما)
+  intFav: d => {
+    const c = CH(d.id); if (!c || !d.k) return;
+    const f = favIntOf(c);
+    c.favInt = f.includes(d.k) ? f.filter(x => x !== d.k) : [...f, d.k];
+    save(); renderChild(c.id);
+  },
   // إضافة رابط وحذفه من صفحة «الروابط والبطاقات»، مع تحديث القسم في مكانه دون إعادة فتح الصفحة
   lkAdd: () => {
     const t = (((document.querySelector('#lkTitle')) || {}).value || '').trim(), u = (((document.querySelector('#lkUrl')) || {}).value || '').trim();
@@ -6312,10 +6319,24 @@ function lessonsAdminHtml(c){
 }
 // فهرس صفحات حقيبة بابا أحمد (https://ajh.sa/): لكل صفحة نسخة داخل التطبيق إن وُجدت، وإلا فتحها على الإنترنت من الموقع
 const HAKIBA_URL = 'https://ajh.sa/';
-// البطاقات المفضلة للطفل: تظهر بجانب زر المعلمة الذكية
-function favTilesHtml(c){
-  const favs = (c.favExt || []).filter(pid => !extHidden(c, pid));
-  return extPlatforms().filter(p => favs.includes(p[0])).map(([, title, url]) => `<a class="big-tile" href="${esc(url)}" target="_blank" rel="noopener"><span class="em">⭐</span>${esc(title)}</a>`).join('');
+// المفضلة أعلى الشاشة (مكان المنصات سابقاً): المعلمة الذكية ودرس اليوم مفضلان افتراضياً، ويضيف الطفل بطاقات المنصات بالنجمة
+const FAV_INT_ORDER = ['smart', 'daily'];
+const favIntOf = c => Array.isArray(c.favInt) ? c.favInt : FAV_INT_ORDER;
+// بطاقة داخلية (المعلمة الذكية أو درس اليوم) مع نجمة تضيفها إلى المفضلة أو تزيلها
+function intTileHtml(c, k){
+  const fav = favIntOf(c).includes(k);
+  const star = `<button class="fav-btn" data-act="intFav" data-id="${esc(c.id)}" data-k="${k}" title="${fav ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}">${fav ? '⭐' : '☆'}</button>`;
+  const body = k === 'smart'
+    ? `<button class="big-tile" data-act="smart" data-id="${esc(c.id)}"><span class="em">🧠</span>المعلمة الذكية</button>`
+    : `<button class="big-tile" style="background:${esc(c.color)};color:#fff" data-act="daily" data-id="${esc(c.id)}"><span class="em">📘</span>${A(c, 'ابدأ', 'ابدئي')} درس اليوم<br><small>(${c.minutes || 30} دقيقة)</small></button>`;
+  return `<div class="ext-tile">${body}${star}</div>`;
+}
+// صف المفضلة: الداخلية حسب الترتيب، ثم المنصات التي أضافها الطفل (تُخفى إن أخفاها مدير النظام أو ولي الأمر)
+function favTopHtml(c){
+  const ints = FAV_INT_ORDER.filter(k => favIntOf(c).includes(k)).map(k => intTileHtml(c, k));
+  const exts = extPlatforms().filter(([pid]) => !extHidden(c, pid) && (c.favExt || []).includes(pid)).map(p => extTileHtml(c, p));
+  const all = [...ints, ...exts];
+  return all.length ? `<div class="tiles-grid">${all.join('')}</div>` : '';
 }
 // المنصات الخارجية: بطاقة لكل منصة على الشاشة الرئيسية للطفل، ويخفيها مدير النظام أو ولي الأمر لأطفاله (c.extOff = المنصات المخفية)
 // صفحة مدير النظام: إضافة رابط خارجي (عنوان + رابط) وحذفه، وكل رابط يصبح بطاقة للأطفال
@@ -6331,18 +6352,19 @@ function linksAdminHtml(){
 // كل منصة: [المعرّف، العنوان، الرابط، القسم (null = الصف العام للبطاقات)]
 // المنصات المدمجة أولاً، ثم الروابط التي يضيفها مدير النظام من صفحة «الروابط والبطاقات»
 const BUILTIN_EXT = [['jaza', 'منصة جزاء', 'https://jaza.jzaa35677.workers.dev/', null], ['kg', 'منصة KG1 وKG2', 'https://billowing-haze-709d.ovahmedjazs.workers.dev/', null], ['games', 'فتح منصة الألعاب', 'https://jolly-limit-0945.jzaa35677.workers.dev/', 'منصة الألعاب'], ['g-dainty', 'بلاط الإملاء', 'https://dainty-empanada-28483e.netlify.app/', 'منصة الألعاب'], ['g-balloons', 'بالونات الحروف 3D', 'https://singular-khapse-fe0daf.netlify.app/', 'منصة الألعاب'], ['g-madd', 'ألعاب المدود', 'https://plain-wave-e041.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-similar', 'تحدّي الحروف المتشابهة', 'https://fancy-morning-f7ff.ajhsov.workers.dev/', 'منصة الألعاب'], ['g-bobo', 'بوبو يتعلم القراءة', 'https://misty-tree-c633.allmail199.workers.dev/', 'منصة الألعاب'], ['g-hero', 'بطل مهارات لغتي', 'https://go199.netlify.app/', 'منصة الألعاب'], ['g-challenge', 'تحدي الحروف', 'https://ah1999.netlify.app/', 'منصة الألعاب'], ['g-shapes', 'أشكال الحرف', 'https://sh199.netlify.app/', 'منصة الألعاب'], ['g-invasion', 'غزو الحروف', 'https://fd199.netlify.app/', 'منصة الألعاب'], ['g-words', 'تحدي الكلمات والجملة', 'https://k199.netlify.app/', 'منصة الألعاب'], ['g-analysis', 'تحدي تحليل الكلمات', 'https://wa199.netlify.app/', 'منصة الألعاب'], ['g-path', 'طريق التأسيس', 'https://ro199.netlify.app/', 'منصة الألعاب'], ['g-arena', 'ساحة التحدي', 'https://th199.netlify.app/', 'منصة الألعاب']];
-// بطاقات المنصات في الشاشة الرئيسية للطفل: البطاقات بلا قسم في صف عام، وكل قسم يظهر تحت عنوانه
-// gamesPart=false: البطاقات العامة وباقي الأقسام (أعلى الشاشة)، gamesPart=true: قسم منصة الألعاب فقط (في آخر الشاشة)
+// بطاقة منصة خارجية: النجمة تضيفها إلى المفضلة أو تزيلها
+function extTileHtml(c, [pid, title, url]){
+  const fav = (c.favExt || []).includes(pid);
+  return `<div class="ext-tile"><a class="big-tile" href="${esc(url)}" target="_blank" rel="noopener"><span class="em">🌐</span>${esc(title)}</a><button class="fav-btn" data-act="extFav" data-id="${esc(c.id)}" data-p="${esc(pid)}" title="${fav ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}">${fav ? '⭐' : '☆'}</button></div>`;
+}
+// المنصات بلا قسم: تظهر داخل شبكة البطاقات الرئيسية بجوار باقي البطاقات
+function extGeneralTilesHtml(c){
+  return extPlatforms().filter(([pid, , , sec]) => !sec && !extHidden(c, pid)).map(p => extTileHtml(c, p)).join('');
+}
+// المنصات في الأقسام: كل قسم تحت عنوانه. gamesPart=true يعرض قسم منصة الألعاب فقط (في آخر الشاشة)
 function extBlocksHtml(c, gamesPart = false){
-  const tile = ([pid, title, url]) => `<div class="ext-tile"><a class="big-tile" href="${esc(url)}" target="_blank" rel="noopener"><span class="em">🌐</span>${esc(title)}</a><button class="fav-btn" data-act="extFav" data-id="${esc(c.id)}" data-p="${esc(pid)}" title="إضافة إلى المفضلة">${(c.favExt || []).includes(pid) ? '⭐' : '☆'}</button></div>`;
-  // نفس منطق الإخفاء السابق، مع فصل قسم الألعاب ليُعرض في الأسفل
-  const vis = extPlatforms().filter(([pid, , , sec]) => !extHidden(c, pid) && ((sec === 'منصة الألعاب') === gamesPart));
-  const general = vis.filter(p => !p[3]);
-  let h = general.length ? `<div class="tiles-grid">${general.map(tile).join('')}</div>` : '';
-  [...new Set(vis.map(p => p[3]).filter(Boolean))].forEach(sec => {
-    h += `<h4 class="grp">${esc(sec)}</h4><div class="tiles-grid">${vis.filter(p => p[3] === sec).map(tile).join('')}</div>`;
-  });
-  return h;
+  const vis = extPlatforms().filter(([pid, , , sec]) => sec && !extHidden(c, pid) && ((sec === 'منصة الألعاب') === gamesPart));
+  return [...new Set(vis.map(p => p[3]))].map(sec => `<h4 class="grp">${esc(sec)}</h4><div class="tiles-grid">${vis.filter(p => p[3] === sec).map(p => extTileHtml(c, p)).join('')}</div>`).join('');
 }
 const extPlatforms = () => [...BUILTIN_EXT, ...(S.settings.extLinks || []).map(x => [x.id, x.title, x.url, x.section || null])];
 const extHidden = (c, pid) => (c.extOff || []).includes(pid);
