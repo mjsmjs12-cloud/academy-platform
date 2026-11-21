@@ -830,6 +830,8 @@ function cloudApply(d){
     applyTheme();
     if (UI.parentOk) renderParent();
     else if (UI.kid && !document.querySelector('input:focus, textarea:focus')) renderChild(UI.kid);
+    // شاشة الدخول لا تُعاد رسمها تلقائياً، فنعيدها إن كانت الشاشة الحالية (دون مقاطعة الكتابة)
+    else if ((CUR === renderLogin || CUR === null) && !document.querySelector('input:focus, textarea:focus')) renderLogin();
     toast('☁️ وصلت تحديثات من الجهاز الآخر');
     scanMessages(); // رسائل وصلت من الجهاز الآخر
   } catch (e) { console.warn('cloud: bad remote data', e); }
@@ -2331,6 +2333,8 @@ function go(fn){
   history.pushState({ academy: true }, '');   // كل انتقال خطوة في سجل المتصفح
   presenceTick();                              // تحديث حضور الطفل مع كل تغيير صفحة
   fn(); updateEnvelope();
+  // عند كل تغيير شاشة نسحب أحدث نسخة من الخادم مرة واحدة (دون انتظار السحب الدوري)
+  if (S.cloud && S.cloud.f) cloudPull().catch(() => {});
 }
 // زر الظرف في أعلى الشاشة: للطفلة يفتح مراسلتها، ولولي الأمر يفتح صفحة الرسائل
 function updateEnvelope(){
