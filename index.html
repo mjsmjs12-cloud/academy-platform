@@ -2487,6 +2487,7 @@ function renderAdminLogin(){
 }
 function renderLogin(){
   CUR_CID = null; applyTheme();
+  const guardianEmailBox = emailLoginHtml(); // بطاقة ولي الأمر بالبريد، مستقلة عن بطاقة الطفل
   view().innerHTML = `
   <div class="hero"><div style="font-size:44px">🌸📚🌸</div><h1>أكاديمية أبو نصره الذكية</h1><div class="muted">أدخلي الاسم الأول والرمز الخاص بك</div></div>
   ${joinBoxHtml()}
@@ -2495,9 +2496,9 @@ function renderLogin(){
     <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
-    ${emailLoginHtml()}
     <div id="frozenBox"></div>
   </div>
+  ${guardianEmailBox ? `<div class="card" style="max-width:420px;margin:12px auto">${guardianEmailBox}</div>` : ''}
   <div style="position:fixed;bottom:10px;left:10px;z-index:5"><button class="btn ghost sm" data-act="adminScreen">🔐 دخول مدير النظام</button></div>
   <div class="card" style="max-width:420px;margin:12px auto">
     <div class="row center"><button class="btn ghost" data-act="codeToggle">🔑 دخول بالكود</button></div>
