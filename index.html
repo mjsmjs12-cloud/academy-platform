@@ -504,7 +504,8 @@ const DEFAULT_ADHKAR = [
 ];
 function newChild(id, name, emoji, color){ return {id, name, emoji, color, theme:'', level: id === 'rima' ? 3 : 1, tgChannel:id === 'rima' ? 'lilyan1987' : '', tgStories:[], arLetters:['ا','ب','ت','ث'], focus:[], enFocus:[], enCount:6, enRoutine:false, mathMax:10, addMax:10, subMax:10, minutes:30}; }
 function defaultState(){
-  return {version:2, settings:{pin:'', rate:0.85, digits:'western', theme:'#e75a8c', hl:'#2563eb', hlOn:true},
+  // الدخول بالبريد مفعّل افتراضياً، ويمكن للمدير تغييره من الإعدادات (مفعّلة / مخفية / ملغاة)
+  return {version:2, settings:{pin:'', rate:0.85, digits:'western', theme:'#e75a8c', hl:'#2563eb', hlOn:true, emailLogin:'on'},
     children:[newChild('rima','ريما','🌷','#e75a8c'), newChild('yamama','يمامة','🕊️','#b05cc8')],
     words:defaultWords(), notes:[], progress:{}, comps:[], kcontent:[], yt:[], adhkar:DEFAULT_ADHKAR.map(a => ({id:uid(), ...a, visible:true, approved:false})), quranApproved:[]};
 }
