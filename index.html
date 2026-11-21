@@ -2395,6 +2395,8 @@ function lastSeenText(c){
   return day + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 // شارة الحضور لولي الأمر ومدير النظام
+// نص الحضور بخط صغير داخل القوائم، بدون الشارة الكبيرة
+const presenceText = c => isInside(c) ? '🟢 داخل الآن' : `⚪ خارج · آخر تواجد ${lastSeenText(c)}`;
 const presenceHtml = c => isInside(c)
   ? '<span class="pill" style="background:#e6f7ec;color:#1e7a3c">🟢 داخل الآن</span>'
   : `<span class="pill">⚪ خارج · آخر تواجد ${esc(lastSeenText(c))}</span>`;
@@ -2576,15 +2578,15 @@ const seenKey = (cid, room) => cid + '|' + room;
 const siblingsOf = (a, b) => agents().some(g => g.kids.includes(a) && g.kids.includes(b));
 const dmKids = id => { const sib = S.children.filter(k => k.id !== id && !k.chatOff && siblingsOf(id, k.id)); return [...sib, ...linkPartners(id).filter(k => !sib.some(x => x.id === k.id))]; };
 // مراسلة الطفل مع ولي أمره (الوكيل النشط المسنَد إليه)؛ الغرفة خاصة بينهما
-const guardRoomsOf = cid => agents().filter(a => a.kids.includes(cid) && isActive(a)).map(a => ({room: dmRoom(cid, a.id), label: '👤 ' + a.name}));
+const guardRoomsOf = cid => agents().filter(a => a.kids.includes(cid) && isActive(a) && !a.chatOff).map(a => ({room: dmRoom(cid, a.id), label: '👤 ' + a.name}));
 // الدردشة الجماعية بين أبناء ولي أمر فعّلها المدير من سجل المستخدمين: غرفة مشتركة لأبنائه فقط
 const grpRoom = aid => 'grp:' + aid;
-const guardGroupsOf = cid => agents().filter(a => a.groupOn && a.kids.includes(cid) && isActive(a)).map(a => ({room: grpRoom(a.id), label: '👥 مجموعة الإخوة'}));
+const guardGroupsOf = cid => agents().filter(a => a.groupOn && a.kids.includes(cid) && isActive(a) && !a.chatOff).map(a => ({room: grpRoom(a.id), label: '👥 مجموعة الإخوة'}));
 // ربط عائلتين بموافقة مدير النظام: إما خاص بين كل طفلين، أو مجموعة واحدة لأبناء الطرفين
 const linksAll = () => (S.settings.links = S.settings.links || []);
 const agentName = aid => { const a = agents().find(x => x.id === aid); return a ? a.name : '—'; };
-const kidsOfAgentId = aid => { const a = agents().find(x => x.id === aid); return a && isActive(a) ? a.kids.filter(id => CH(id)) : []; };
-const linkedKidsOf = (cid, mode) => linksAll().filter(l => l.on && l.mode === mode && (kidsOfAgentId(l.a).includes(cid) || kidsOfAgentId(l.b).includes(cid)));
+const kidsOfAgentId = aid => { const a = agents().find(x => x.id === aid); return a && isActive(a) && !a.chatOff ? a.kids.filter(id => CH(id)) : []; };
+const linkedKidsOf = (cid, mode) => linksAll().filter(l => l.on && (l.modes || [l.mode]).includes(mode) && (kidsOfAgentId(l.a).includes(cid) || kidsOfAgentId(l.b).includes(cid)));
 const linkPartners = cid => { const out = []; linkedKidsOf(cid, 'private').forEach(l => { const other = kidsOfAgentId(l.a).includes(cid) ? kidsOfAgentId(l.b) : kidsOfAgentId(l.a); other.forEach(id => { const k = CH(id); if (k && !k.chatOff && id !== cid && !out.some(x => x.id === id)) out.push(k); }); }); return out; };
 const lnkGroupsOf = cid => linkedKidsOf(cid, 'group').map(l => ({room: 'lnk:' + l.id, label: '👥 مجموعة بين عائلتين'}));
 // الغرفة متاحة للطفل إن كانت التعميمات، أو المجموعة لمن أضافه المدير إليها، أو خاصة مع أخ مسند لنفس ولي الأمر، أو مع ولي أمره
@@ -3647,7 +3649,8 @@ function pinMatches(input){
 // ===== الوكلاء (أولياء الأمور): كل وكيل برمز خاص وصلاحيات ومدة يحددها مدير النظام =====
 const AGENT_PERMS = [
   ['kids','👧 الأطفال (إضافة وتعديل الملفات)'], ['reports','📊 التقارير والوقت'], ['notes','📝 الملاحظات'],
-  ['content','📚 المحتوى (الكلمات والأذكار والقصص والفيديو)'], ['print','🖨️ الطباعة'], ['delete','🗑️ الحذف (يُمنح بحذر)']
+  ['content','📚 المحتوى (الكلمات والأذكار والقصص والفيديو)'], ['print','🖨️ الطباعة'], ['delete','🗑️ الحذف (يُمنح بحذر)'],
+  ['broadcast','📢 إرسال التعميمات'], ['chatctl','🚫 إيقاف وتفعيل المحادثات'], ['links','🔗 ربط العائلات']
 ];
 const AGENT_TEMPLATES = {
   follow:  {label:'متابِع', perms:['reports']},
@@ -3807,6 +3810,9 @@ function guardDenied(act, d){
   if (!(UI.parentOk && UI.parentRole === 'guardian')) return null;
   const a = currentAgent();
   if (!a || !isActive(a)) return 'expired';
+  if (['broadcastSend','broadcastDel','bcRecStart'].includes(act) && !a.perms.includes('broadcast')) return 'إرسال التعميمات غير مسموح لهذا الوكيل';
+  if (['kidChatStop','gmChatStop','gmGroup'].includes(act) && !a.perms.includes('chatctl')) return 'إيقاف المحادثات غير مسموح لهذا الوكيل';
+  if (['linkAdd','linkToggle','linkDel'].includes(act) && !a.perms.includes('links')) return 'ربط العائلات غير مسموح لهذا الوكيل';
   if (ADMIN_ONLY_ACTS.has(act)) return 'هذه الصلاحية لمدير النظام فقط';
   if (DELETE_ACTS.has(act) && !a.perms.includes('delete')) return 'الحذف غير مسموح لهذا الوكيل';
   if (act === 'ptab' && !(TAB_PERM[d.t] && a.perms.includes(TAB_PERM[d.t]))) return 'هذه الصفحة غير مسموحة لهذا الوكيل';
@@ -3817,7 +3823,7 @@ function guardDenied(act, d){
 }
 // الإجراءات الإدارية التي لا تُفوَّض أبداً
 const ADMIN_ONLY_ACTS = new Set(['saveSettings','testAr','testEn','exportData','newRecovery','setSec',
-  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','agentCodeNew','agentCodeToggle','agentToggle','agentEmail','reactivateKid','inboxRead','inboxDel','broadcastSend','broadcastDel','bcRecStart','chatDel','editStart','editCancel','saveEdit','addParticipant','cloudCreate','cloudSync','cloudStop']);
+  'driveNow','driveOff','driveRestorePrev','driveFiles','resetChild','resetAll','agentAdd','agentTpl','agentDel','agentCodeNew','agentCodeToggle','agentToggle','agentEmail','reactivateKid','inboxRead','inboxDel','chatDel','editStart','editCancel','saveEdit','addParticipant','cloudCreate','cloudSync','cloudStop']);
 // يحفظ الرمز من نموذج الإعدادات: الحقل الفارغ يُبقي الرمز الحالي، وخانة الإزالة تحذفه
 // واجهة إدارة الوكلاء (مدير النظام فقط)
 // الحد الأقصى لعدد أطفال ولي الأمر: خاص بالوكيل إن حُدد، وإلا الإعداد العام (افتراضياً 5)
@@ -3862,7 +3868,7 @@ function agentsHtml(){
     <p class="muted">كل وكيل له رمز خاص وصلاحيات تحددينها. لا تشمل الإعدادات والرمز والنسخ الاحتياطي.</p>
     ${rows || '<p class="muted">لا يوجد وكلاء بعد</p>'}
     <div class="card" style="margin-top:10px"><h4>➕ وكيل جديد</h4>
-      <label class="f">من المستخدمين الحاليين (اختياري)</label><select id="agPick" data-change="agPick"><option value="">— مستخدم جديد —</option>${S.children.map(c => `<option value="${esc(c.name)}">${esc(c.emoji)} ${esc(c.name)}</option>`).join('')}${agents().filter(isGuardian).map(a => `<option value="${esc(a.name)}">👤 ${esc(a.name)}</option>`).join('')}</select>
+      <label class="f">من المستخدمين الحاليين (اختياري)</label><select id="agPick" data-change="agPick"><option value="">— مستخدم جديد —</option>${agents().filter(isGuardian).map(a => `<option value="${esc(a.name)}">👤 ${esc(a.name)}</option>`).join('')}</select>
       <label class="f">الاسم</label><input id="agName" placeholder="مثال: الجدة، المعلّمة" autocomplete="off">
       <label class="f">الرمز الخاص (4 أرقام على الأقل)</label><input id="agPin" type="password" inputmode="numeric" autocomplete="new-password">
       <label class="f">تنتهي في (اتركيه فارغاً للدائمة)</label><input id="agUntil" type="date" lang="en-US">
@@ -3871,13 +3877,29 @@ function agentsHtml(){
 // واجهة ربط العائلتين لمدير النظام: اختيار وليَّي أمر ونوع الربط، مع إيقاف أو حذف
 function linksHtml(){
   const opts = agents().filter(a => isGuardian(a) && isActive(a)).map(a => `<option value="${esc(a.id)}">👤 ${esc(a.name)}</option>`).join('');
-  const rows = linksAll().map(l => `<div class="row between" style="gap:6px;margin-top:6px"><span>${esc(agentName(l.a))} ↔ ${esc(agentName(l.b))} — ${l.mode === 'group' ? '👥 جماعية' : '💬 خاصة بين كل طفلين'}${l.on ? '' : ' (موقوف)'}</span><span class="row" style="gap:6px"><button class="btn sm ${l.on ? 'ghost' : 'ok'}" data-act="linkToggle" data-id="${esc(l.id)}">${l.on ? '⛔ إيقاف' : '✅ تفعيل'}</button><button class="btn sm danger" data-act="linkDel" data-id="${esc(l.id)}">🗑️ حذف</button></span></div>`).join('');
-  return `<div class="card" style="margin-top:10px"><h4>🔗 ربط عائلتين</h4><p class="muted">يفعّله مدير النظام فقط، ويظهر الربط لأطفال الوليَّين.</p><div class="row" style="gap:6px;flex-wrap:wrap"><select id="lkA"><option value="">ولي الأمر الأول</option>${opts}</select><select id="lkB"><option value="">ولي الأمر الثاني</option>${opts}</select><select id="lkMode"><option value="private">💬 خاصة بين كل طفلين</option><option value="group">👥 مجموعة جماعية</option></select><button class="btn sm ok" data-act="linkAdd">➕ ربط</button></div>${rows || '<p class="muted">لا توجد روابط بعد</p>'}</div>`;
+  const rows = linksAll().map(l => `<div class="row between" style="gap:6px;margin-top:6px"><span>${esc(agentName(l.a))} ↔ ${esc(agentName(l.b))} — ${(l.modes || [l.mode]).map(m => m === 'group' ? '👥 جماعية' : '💬 خاصة بين كل طفلين').join(' + ')}${l.on ? '' : ' (موقوف)'}</span><span class="row" style="gap:6px"><button class="btn sm ${l.on ? 'ghost' : 'ok'}" data-act="linkToggle" data-id="${esc(l.id)}">${l.on ? '⛔ إيقاف' : '✅ تفعيل'}</button><button class="btn sm danger" data-act="linkDel" data-id="${esc(l.id)}">🗑️ حذف</button></span></div>`).join('');
+  return `<div class="card" style="margin-top:10px"><h4>🔗 ربط عائلتين</h4><p class="muted">يفعّله مدير النظام فقط، ويظهر الربط لأطفال الوليَّين.</p><div class="row" style="gap:6px;flex-wrap:wrap"><select id="lkA"><option value="">ولي الأمر الأول</option>${opts}</select><select id="lkB"><option value="">ولي الأمر الثاني</option>${opts}</select><label class="chk"><input type="checkbox" id="lkPriv" checked> 💬 خاصة بين كل طفلين</label><label class="chk"><input type="checkbox" id="lkGrp"> 👥 مجموعة جماعية</label><button class="btn sm ok" data-act="linkAdd">➕ ربط</button></div>${rows || '<p class="muted">لا توجد روابط بعد</p>'}</div>`;
 }
 // تفعيل الدردشة الجماعية بين أبناء كل ولي أمر: يفعّلها مدير النظام من الإعدادات
 function groupToggleHtml(){
   const gs = agents().filter(a => isGuardian(a));
-  return `<div class="card" style="margin-top:10px"><h4>💬 الدردشة الجماعية بين أبناء كل ولي أمر</h4>${gs.length ? gs.map(a => `<div class="row between" style="gap:6px;margin-top:6px"><span>👤 ${esc(a.name)}</span><button class="btn sm ${a.groupOn ? 'ok' : 'ghost'}" data-act="gmGroup" data-id="${esc(a.id)}">${a.groupOn ? '✅ مفعّلة' : '⛔ متوقفة'}</button></div>`).join('') : '<p class="muted">لا يوجد أولياء أمور بعد</p>'}</div>`;
+  const kids = S.children.map(c => `<div class="row between" style="gap:6px;margin-top:6px"><span>${esc(c.emoji)} ${esc(c.name)}</span><button class="btn sm ${c.chatOff ? 'danger' : 'ok'}" data-act="kidChatStop" data-id="${esc(c.id)}">${c.chatOff ? '⛔ المحادثة موقوفة' : '✅ المحادثة مسموحة'}</button></div>`).join('');
+  const guards = gs.map(a => `<div class="row between" style="gap:6px;margin-top:6px"><span>👤 ${esc(a.name)}</span><span class="row" style="gap:6px"><button class="btn sm ${a.chatOff ? 'danger' : 'ok'}" data-act="gmChatStop" data-id="${esc(a.id)}">${a.chatOff ? '⛔ المحادثة موقوفة' : '✅ المحادثة مسموحة'}</button><button class="btn sm ${a.groupOn ? 'ok' : 'ghost'}" data-act="gmGroup" data-id="${esc(a.id)}">${a.groupOn ? '👥 الجماعية مفعّلة' : '👥 الجماعية متوقفة'}</button></span></div>`).join('');
+  return `<div class="card" style="margin-top:10px"><h4>🚫 إيقاف المحادثة</h4><p class="muted">إيقاف المحادثة يمنع الإرسال والاستقبال، وتبقى الرسائل السابقة محفوظة.</p><b>الأطفال</b>${kids || '<p class="muted">لا يوجد أطفال</p>'}<b style="display:block;margin-top:10px">أولياء الأمور</b>${guards || '<p class="muted">لا يوجد أولياء أمور بعد</p>'}</div>`;
+}
+// تعديل أسماء الصفحات والتبويبات: الحقل الفارغ يعيد الاسم الافتراضي
+function namesAdminHtml(){
+  const L = S.settings.labels || {};
+  const field = (k, label, val) => `<label class="f">${label}</label><input data-change="labelSet" data-k="${k}" value="${esc(val)}">`;
+  return `<div class="card"><h3>✏️ أسماء الصفحات والتبويبات</h3><p class="muted">اتركي الحقل فارغاً لإعادة الاسم الافتراضي.</p>`
+    + field('page', 'عنوان صفحة ولي الأمر', L.page || 'صفحة ولي الأمر')
+    + field('inboxPage', 'عنوان صفحة الدردشات والتعاميم', L.inboxPage || 'صفحة الدردشات والتعاميم')
+    + Object.keys(PARENT_LABELS).map(k => field(k, 'تبويب: ' + PARENT_LABELS[k], lbl(k))).join('')
+    + '</div>';
+}
+// المهام المفوّضة للوكيل: تظهر حسب الصلاحيات التي اختارها مدير النظام له يدوياً
+function delegatedHtml(){
+  return (agentAllows('broadcast') ? PARENT.bcForm() : '') + (agentAllows('chatctl') ? groupToggleHtml() : '') + (agentAllows('links') ? linksHtml() : '');
 }
 function savePinFromForm(){
   const el = $('#gpin'); if (!el) return;
@@ -3935,12 +3957,14 @@ const PARENT_GROUPS = [
   ['🖨️ الأدوات', ['print']],
   ['⚙️ النظام', ['settings']]
 ];
+// تسمية الصفحة أو التبويب: من الإعدادات إن وُجدت، وإلا الاسم الافتراضي
+function lbl(k){ return ((S.settings.labels || {})[k]) || PARENT_LABELS[k]; }
 const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'💬 الدردشة والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 // وصف قصير لكل بطاقة في قائمة صفحة ولي الأمر (يظهر تحت العنوان كما في بطاقات الإعدادات)
 const PARENT_DESC = {dash:'ملخص أطفالك وتنبيهاتهم', inbox:'الدردشة الواردة والتعميم', kids:'ملفات الأطفال وإعداداتهم', reports:'تقارير الوقت والإنجاز', notes:'ملاحظات تُحفظ لكل طفل', words:'إضافة الكلمات ومراجعتها', adhkar:'الأذكار والأدعية للأطفال', content:'الأسماء والأنبياء للأطفال', yt:'قنوات يوتيوب المعتمدة', tg:'قصص مصورة بصيغة PDF', print:'طباعة التقارير والأوراق', settings:'إعدادات البرنامج والحساب'};
 // يفصل الأيقونة (أول كلمة) عن عنوان البطاقة
 const parentCard = (k, on) => {
-  const s = PARENT_LABELS[k], i = s.indexOf(' ');
+  const s = lbl(k), i = s.indexOf(' ');
   return `<button class="set-card ${on ? 'on' : ''}" data-act="ptab" data-t="${k}"><span class="set-ico">${s.slice(0, i)}</span><span class="set-txt"><b>${s.slice(i + 1)}</b><small>${PARENT_DESC[k] || ''}</small></span><span class="set-go">‹</span></button>`;
 };
 // الشاشة الرئيسية لولي الأمر: تنبيهات أطفاله، وصفحاته المسموحة، وتغيير رموز أطفاله المسندين إليه
@@ -3949,7 +3973,7 @@ function renderGuardianHome(){
   const a = currentAgent(), kids = visibleKids();
   const ok = t => !!TAB_PERM[t] && agentAllows(TAB_PERM[t]);
   const tiles = PARENT_GROUPS.flatMap(g => g[1]).filter(ok).map(t => {
-    const [em, ...rest] = PARENT_LABELS[t].split(' ');
+    const [em, ...rest] = lbl(t).split(' ');
     return `<button class="big-tile" data-act="ptab" data-t="${t}"><span class="em">${em}</span>${esc(rest.join(' '))}</button>`;
   }).join('');
   const kidRows = kids.map(c => `<div class="row between" style="padding:8px 0;border-bottom:1px dashed #f0b6cc"><span>${esc(c.emoji)} ${esc(kName(c) || 'طفل')} <span class="muted" style="font-size:12px">${esc(LEVEL_LABELS5[kidLevel(c) - 1] || '')}</span><br>${presenceHtml(c)}</span><button class="btn sm ghost" ${extPlatforms().map(([pid, title]) => agentAllows('kids') ? `<button class="btn sm ${extHidden(c, pid) ? 'ghost' : 'ok'}" data-act="gExtToggle" data-id="${esc(c.id)}" data-p="${pid}">🌐 ${esc(title)}: ${extHidden(c, pid) ? 'مخفية' : 'ظاهرة'}</button>` : '').join('')}<button class="btn sm ghost" data-act="kidCodeOpen" data-id="${esc(c.id)}">🔑 تغيير الرمز</button></div>`).join('');
@@ -3988,12 +4012,12 @@ function renderParent(){
   const firstTab = PARENT_GROUPS.flatMap(g => g[1]).find(allowed);
   if (guard && UI.pchild && !visibleKids().some(c => c.id === UI.pchild)) UI.pchild = visibleKids()[0] ? visibleKids()[0].id : null;
   if (guard && (!firstTab || !visibleKids().length)) { view().innerHTML = `<div class="card center"><h3>لا توجد صفحات مسموحة لك</h3><p class="muted">اطلبي من مدير النظام منح صلاحيات أو إسناد أطفال لهذا الوكيل.</p><button class="btn ghost" data-act="home">🏠 الرئيسية</button></div>`; return; }
-  const cur = PARENT_LABELS[UI.ptab] && allowed(UI.ptab) ? UI.ptab : (firstTab || 'reports');
+  const cur = lbl(UI.ptab) && allowed(UI.ptab) ? UI.ptab : (firstTab || 'reports');
   view().innerHTML = `
-  <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>${UI.ptab === 'inbox' ? 'صفحة الدردشات والتعاميم' : 'صفحة ولي الأمر'}</h2></div>
+  <div class="row between"><button class="btn ghost sm" data-act="home">🏠 الرئيسية</button><h2>${UI.ptab === 'inbox' ? ((S.settings.labels || {}).inboxPage || 'صفحة الدردشات والتعاميم') : ((S.settings.labels || {}).page || 'صفحة ولي الأمر')}</h2></div>
   ${UI.pMenuOpen
     ? `<div id="pTabs">${groups.map(([t, keys]) => `<h4 class="grp">${t}</h4><div class="set-grid">` + keys.map(k => parentCard(k, cur === k)).join('') + `</div>`).join('')}</div>`
-    : `<div class="card set-head"><button class="btn ghost sm" data-act="pMenu">📋 الصفحات</button><h3>${PARENT_LABELS[cur]}</h3></div>
+    : `<div class="card set-head"><button class="btn ghost sm" data-act="pMenu">📋 الصفحات</button><h3>${lbl(cur)}</h3></div>
        ${alertsHtml()}<div>${PARENT[cur]()}</div>`}`;
   focusMsgCard(); // إن جاء الفتح من إشعار رسالة
 }
@@ -4159,13 +4183,14 @@ const SETTINGS_PAGES = [
   ['agents','👥','الوكلاء وصلاحياتهم','إنشاء الوكلاء وتحديد صلاحياتهم ومدتها','admin'],
   ['users','📋','سجل المستخدمين','أولياء الأمور وعدد أطفال كل واحد','admin'],
   ['chat','💬','الدردشة والتعميمات','إضافة الأطفال إلى المجموعة الجماعية','admin'],
+  ['names','✏️','أسماء الصفحات والتبويبات','تغيير عناوين الصفحات والتبويبات ومسمياتها','admin'],
   ['links','🔗','الروابط والبطاقات','روابط خارجية تظهر كبطاقات في الشاشة الرئيسية للأطفال','admin'],
   ['backup','💾','النسخ الاحتياطي والمزامنة','رابط الدخول من الأجهزة والنسخ الاحتياطي','admin'],
   ['about','ℹ️','عن البرنامج والنصائح','معلومات البرنامج ونصائح للاستخدام','general']
 ];
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
-  ['👑 إدارة مدير النظام', ['security','agents','users','chat','links','backup']],
+  ['👑 إدارة مدير النظام', ['security','agents','users','chat','names','links','backup']],
   ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']]
 ];
 const PARENT = {
@@ -4173,7 +4198,7 @@ const PARENT = {
   // رسائل الأطفال والوكلاء الواردة إلى مدير النظام
   inbox(){
     // الوكيل يرى رسائله ومحادثات أطفاله (للقراءة فقط)، أما التعميم ومحادثات كل الأطفال فلمدير النظام
-    return UI.parentRole !== 'guardian' ? PARENT.bcForm() + PARENT.chatWatch() + PARENT.inboxList() : PARENT.kidChats() + PARENT.inboxList();
+    return UI.parentRole !== 'guardian' ? PARENT.bcForm() + PARENT.chatWatch() + PARENT.inboxList() : PARENT.kidChats() + delegatedHtml() + PARENT.inboxList();
   },
   // محادثات أطفال الوكيل: الخاصة بين إخوته، ومع ولي الأمر، ورسائل المجموعة من أطفاله
   kidChats(){
@@ -4315,7 +4340,7 @@ const PARENT = {
   },
   kids(){
     const open = UI.kidPage ? S.children.find(c => c.id === UI.kidPage) : null;
-    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small><small style="display:block">${presenceHtml(c)}</small></button>`).join('')}</div>${addKidHtml()}`;
+    if (!open) return `<div class="card"><h3>👧 أسماء الأطفال</h3><p class="muted">اختاري طفلاًً لفتح ملفها وإعداداتها</p>${visibleKids().map(c => `<button class="set-item" data-act="openKid" data-id="${esc(c.id)}" style="border-right:6px solid ${esc(c.color)}">${esc(c.emoji)} ${esc(c.name)}<small class="muted" style="display:block">أولياء الأمور: ${esc(guardiansOf(c.id).join('، ') || 'لا يوجد وكيل بعد')}</small><small style="display:block;font-size:12px;font-weight:600;margin-top:4px">${presenceText(c)}</small></button>`).join('')}</div>${addKidHtml()}`;
     const sec = KID_SECS.some(([k]) => k === UI.kidSec) ? UI.kidSec : 'profile';
     return `<div class="row" style="margin-bottom:8px"><button class="btn ghost" data-act="closeKid">← قائمة الأطفال</button></div>
     ${kidStatusHtml(open)}
@@ -4379,6 +4404,7 @@ const PARENT = {
     ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>${groupToggleHtml()}${linksHtml()}`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
+    ${sec('names', namesAdminHtml())}
     ${sec('links', linksAdminHtml())}
     ${sec('about', PARENT.tips())}
     `;
@@ -5531,10 +5557,12 @@ const ACT = {
   },
   // حذف ولي أمر: تُلغى صلاحياته ورمزه، وتبقى أسماء أطفاله كما هي
   linkAdd: () => {
-    const a = (($('#lkA') || {}).value || ''), b = (($('#lkB') || {}).value || ''), mode = (($('#lkMode') || {}).value || 'private');
+    const a = (($('#lkA') || {}).value || ''), b = (($('#lkB') || {}).value || '');
+    const modes = [...(($('#lkPriv') || {}).checked ? ['private'] : []), ...(($('#lkGrp') || {}).checked ? ['group'] : [])];
+    if (!modes.length) return toast('اختاري نوع الربط: خاص أو جماعي أو كليهما');
     if (!a || !b || a === b) return toast('اختاري وليَّي أمر مختلفين');
     if (linksAll().some(l => (l.a === a && l.b === b) || (l.a === b && l.b === a))) return toast('هذان الوليّان مرتبطان من قبل');
-    linksAll().push({id: 'lk' + Date.now().toString(36), a, b, mode: mode === 'group' ? 'group' : 'private', on: true});
+    linksAll().push({id: 'lk' + Date.now().toString(36), a, b, modes, on: true});
     save(); toast('تم ربط العائلتين 🔗'); renderParent();
   },
   linkToggle: d => { const l = linksAll().find(x => x.id === d.id); if (!l) return; l.on = !l.on; save(); renderParent(); },
@@ -5542,6 +5570,8 @@ const ACT = {
     if (!(await confirmBox('حذف هذا الربط؟', 'يتوقف التواصل بين أطفال العائلتين.'))) return;
     S.settings.links = linksAll().filter(x => x.id !== d.id); save(); renderParent();
   },
+  kidChatStop: d => { const c = CH(d.id); if (!c) return; c.chatOff = !c.chatOff; save(); renderParent(); },
+  gmChatStop: d => { const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return; a.chatOff = !a.chatOff; save(); renderParent(); },
   gmGroup: d => {
     const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return;
     a.groupOn = !a.groupOn; save(); toast(a.groupOn ? 'فُعّلت الدردشة الجماعية لأبنائه 💬' : 'أُوقفت الدردشة الجماعية لأبنائه'); renderParent();
@@ -5887,6 +5917,7 @@ const ACT = {
   resetAll: async () => { if (!(await confirmBox('تصفير كل البيانات؟', 'يعود البرنامج إلى حالته الأولى.'))) return; exportBackup(); S = defaultState(); applyTheme(); UI.pchild = S.children[0].id; save(); renderParent(); toast('تم التصفير'); }
 };
 const CHANGE = {
+  labelSet: t => { S.settings.labels = S.settings.labels || {}; const v = (t.value || '').trim(); if (v) S.settings.labels[t.dataset.k] = v; else delete S.settings.labels[t.dataset.k]; save(); renderParent(); },
   agPick: t => { const n = $('#agName'); if (n && t.value) n.value = t.value; },
   lessonToggle: t => {
     if (!canManageLessons()) { toast('إخفاء الدروس يحتاج صلاحية المحتوى'); t.checked = !t.checked; return; }
