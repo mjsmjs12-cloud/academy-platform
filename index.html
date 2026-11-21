@@ -1346,6 +1346,8 @@ const longDivQuestion = (key, a, f, withRem) => {
   return {key, type:'order', dir:'ltr', prompt: withRem ? 'انقري الناتج ثم الباقي' : 'انقري الناتج خانة خانة', say:[[`${a} مقسومة على ${f}`,'ar']],
     visual, tiles, answer:digs};
 };
+// صفحات الإعدادات العامة التي يصل إليها الوكيل بصلاحية «الإعدادات العامة»
+const GEN_KEYS = ['display', 'voice', 'quran', 'health', 'about'];
 const GEN = {
   ar_letter_sound(ctx, t){
     const F = ctx.F; if (!F.length) return null;
@@ -3650,7 +3652,8 @@ function pinMatches(input){
 const AGENT_PERMS = [
   ['kids','👧 الأطفال (إضافة وتعديل الملفات)'], ['reports','📊 التقارير والوقت'], ['notes','📝 الملاحظات'],
   ['content','📚 المحتوى (الكلمات والأذكار والقصص والفيديو)'], ['print','🖨️ الطباعة'], ['delete','🗑️ الحذف (يُمنح بحذر)'],
-  ['broadcast','📢 إرسال التعميمات'], ['chatctl','🚫 إيقاف وتفعيل المحادثات'], ['links','🔗 ربط العائلات']
+  ['broadcast','📢 إرسال التعميمات'], ['chatctl','🚫 إيقاف وتفعيل المحادثات'], ['links','🔗 ربط العائلات'],
+  ['general','⚙️ الإعدادات العامة (المظهر والصوت والقرآن والتذكير)']
 ];
 const AGENT_TEMPLATES = {
   follow:  {label:'متابِع', perms:['reports']},
@@ -3658,7 +3661,7 @@ const AGENT_TEMPLATES = {
   full:    {label:'ولي أمر كامل', perms:['kids','reports','notes','content','print']}
 };
 // الصفحة -> الصلاحية المطلوبة لفتحها
-const TAB_PERM = {dash:'reports', kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print', inbox:'reports'};
+const TAB_PERM = {settings:'general', dash:'reports', kids:'kids', reports:'reports', notes:'notes', words:'content', adhkar:'content', content:'content', yt:'content', tg:'content', print:'print', inbox:'reports'};
 // أفعال الحذف: تُمنح بصلاحية "حذف" فقط
 const DELETE_ACTS = new Set(['delK','delKid','delWord','delAdhkar','adhkarAudioDel','delPage','delNote','delPhoto','ytDel','pdfDel','tgDel']);
 // قائمة الوكلاء، مع ترحيل رمز ولي الأمر القديم إلى وكيل واحد
@@ -3810,6 +3813,8 @@ function guardDenied(act, d){
   if (!(UI.parentOk && UI.parentRole === 'guardian')) return null;
   const a = currentAgent();
   if (!a || !isActive(a)) return 'expired';
+  if (act === 'setSec' && a.perms.includes('general') && ['', 'display', 'voice', 'quran', 'health', 'about'].includes(d.s || '')) return null;
+  if (act === 'saveSettings' && a.perms.includes('general')) return null;
   if (['broadcastSend','broadcastDel','bcRecStart'].includes(act) && !a.perms.includes('broadcast')) return 'إرسال التعميمات غير مسموح لهذا الوكيل';
   if (['kidChatStop','gmChatStop','gmGroup'].includes(act) && !a.perms.includes('chatctl')) return 'إيقاف المحادثات غير مسموح لهذا الوكيل';
   if (['linkAdd','linkToggle','linkDel'].includes(act) && !a.perms.includes('links')) return 'ربط العائلات غير مسموح لهذا الوكيل';
@@ -3959,7 +3964,7 @@ const PARENT_GROUPS = [
 ];
 // تسمية الصفحة أو التبويب: من الإعدادات إن وُجدت، وإلا الاسم الافتراضي
 function lbl(k){ return ((S.settings.labels || {})[k]) || PARENT_LABELS[k]; }
-const PARENT_LABELS = {dash:'🏠 لوحة التحكم', inbox:'💬 الدردشة والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
+const PARENT_LABELS = {settings:'⚙️ الإعدادات', dash:'🏠 لوحة التحكم', inbox:'💬 الدردشة والتعميم', kids:'👧 أسماء الأطفال وملفاتهم', reports:'📊 التقارير والوقت', notes:'📝 الملاحظات', words:'📚 قاموس الكلمات', adhkar:'📿 الأذكار والأدعية', content:'🌙 الأسماء والأنبياء', yt:'📺 قنوات يوتيوب', tg:'📚 قصص مصورة PDF', print:'🖨️ الطباعة', settings:'⚙️ الإعدادات'};
 // وصف قصير لكل بطاقة في قائمة صفحة ولي الأمر (يظهر تحت العنوان كما في بطاقات الإعدادات)
 const PARENT_DESC = {dash:'ملخص أطفالك وتنبيهاتهم', inbox:'الدردشة الواردة والتعميم', kids:'ملفات الأطفال وإعداداتهم', reports:'تقارير الوقت والإنجاز', notes:'ملاحظات تُحفظ لكل طفل', words:'إضافة الكلمات ومراجعتها', adhkar:'الأذكار والأدعية للأطفال', content:'الأسماء والأنبياء للأطفال', yt:'قنوات يوتيوب المعتمدة', tg:'قصص مصورة بصيغة PDF', print:'طباعة التقارير والأوراق', settings:'إعدادات البرنامج والحساب'};
 // يفصل الأيقونة (أول كلمة) عن عنوان البطاقة
@@ -4190,7 +4195,7 @@ const SETTINGS_PAGES = [
 ];
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
-  ['👑 إدارة مدير النظام', ['security','agents','users','chat','names','links','backup']],
+  ['👑 إدارة مدير النظام', ['security','agents','chat','names','links','backup']],
   ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']]
 ];
 const PARENT = {
@@ -4357,7 +4362,7 @@ const PARENT = {
     const vAr = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('ar')).length, vEn = VOICES.filter(v => (v.lang || '').toLowerCase().startsWith('en')).length;
     const sec = (k, html) => `<div class="setsec" data-s="${k}" ${k === cur ? '' : 'hidden'}>${html}</div>`;
     // بطاقات الصفحة الرئيسية مجمّعة حسب الدور
-    const cards = SETTINGS_GROUPS.map(([gname, keys]) => `<h4 class="grp">${gname}</h4><div class="set-grid">${keys.map(k => { const pg = SETTINGS_PAGES.find(x => x[0] === k); return `<button class="set-card" data-act="setSec" data-s="${pg[0]}"><span class="set-ico">${pg[1]}</span><span class="set-txt"><b>${pg[2]}</b><small>${pg[3]}</small></span><span class="set-go">‹</span></button>`; }).join('')}</div>`).join('');
+    const cards = (UI.parentRole === 'guardian' ? SETTINGS_GROUPS.map(([g, ks]) => [g, ks.filter(k => GEN_KEYS.includes(k))]).filter(([, ks]) => ks.length) : SETTINGS_GROUPS).map(([gname, keys]) => `<h4 class="grp">${gname}</h4><div class="set-grid">${keys.map(k => { const pg = SETTINGS_PAGES.find(x => x[0] === k); return `<button class="set-card" data-act="setSec" data-s="${pg[0]}"><span class="set-ico">${pg[1]}</span><span class="set-txt"><b>${pg[2]}</b><small>${pg[3]}</small></span><span class="set-go">‹</span></button>`; }).join('')}</div>`).join('');
     const pg = SETTINGS_PAGES.find(x => x[0] === cur);
     // شريط الصفحة الفرعية: رجوع وعنوان وحفظ (تظهر فقط داخل صفحة)
     return `<div id="setBar" class="card set-bar" ${cur ? '' : 'hidden'}><button class="btn ghost sm" data-act="setSec" data-s="">→ الإعدادات</button><div class="set-bar-t"><h3 id="setTitle">${pg ? pg[1] + ' ' + pg[2] : ''}</h3><small class="muted" id="setDesc">${pg ? pg[3] : ''}</small></div><button class="btn ok sm" data-act="saveSettings">💾 حفظ</button></div>
@@ -4399,8 +4404,7 @@ const PARENT = {
       <div class="card"><h3>👨‍👧 عدد الأطفال لكل ولي أمر</h3>
       <label class="f">الحد الأقصى العام</label><input id="gmaxkids" type="number" min="1" max="50" value="${S.settings.maxKidsDefault || 5}">
       <p class="muted" style="font-size:13px">يُطبَّق على جميع أولياء الأمور، ويمكن تغييره لولي أمر بعينه من بطاقته في «الوكلاء».</p></div>${securityHtml()}`)}
-    ${sec('agents', agentsHtml())}
-    ${sec('users', userRecordHtml())}
+    ${sec('agents', agentsHtml() + '<div id="userRecBox">' + userRecordHtml() + '</div>')}
     ${sec('chat', `<div class="card"><h3>👥 المجموعة الجماعية</h3><p class="muted">الأطفال المختارون فقط يرون المجموعة ويرسلون فيها. المراسلة الخاصة تُتاح تلقائياً بين الأطفال المسندين إلى ولي أمر واحد.</p>${S.children.map(c => `<label class="chk"><input type="checkbox" id="ingrp_${esc(c.id)}" ${c.inGroup ? 'checked' : ''}> ${esc(c.emoji)} ${esc(c.name)}</label>`).join('')}</div>${groupToggleHtml()}${linksHtml()}`)}
     ${sec('health', breakSettingsHtml())}
     ${sec('backup', `${renderDriveSettings()}${PARENT.backup()}`)}
@@ -5517,7 +5521,7 @@ const ACT = {
     // الأطفال اختياريون عند الإنشاء، ويُسندون لاحقاً من سجل المستخدمين أو من ولي الأمر
     agents().push({id: 'ag' + Date.now().toString(36), name: name.slice(0, 40), email, pin: h, perms: AGENT_TEMPLATES.full.perms.slice(), until: '', kids, off: false});
     save(); toast('تمت إضافة ولي الأمر ✅');
-    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+    const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml();
   },
   // إضافة طفل جديد مباشرة إلى ولي أمر من سجل المستخدمين، بنفس شروط إضافة الطفل من لوحة ولي الأمر
   gmKidAdd: d => {
@@ -5532,13 +5536,13 @@ const ACT = {
     const id = uid();
     S.children.push(Object.assign(newChild(id, name, '⭐', '#3aa0d8'), {code: h, codeSince: Date.now(), lastLogin: Date.now(), trackFrom: dayKeyOf(new Date())}));
     a.kids.push(id); UI.gmKidFor = null; save(); toast('تمت إضافة الطفل ✅');
-    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+    const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml();
   },
   // فتح صفحة إضافة فرد عائلة لولي أمر، والرجوع منها إلى السجل
-  gmKidOpen: d => { UI.gmKidFor = d.id; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
-  gmKidCancel: () => { UI.gmKidFor = null; UI.gmEditFor = null; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmKidOpen: d => { UI.gmKidFor = d.id; const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmKidCancel: () => { UI.gmKidFor = null; UI.gmEditFor = null; const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml(); },
   // تعديل ولي أمر: الاسم والبريد، والرمز الجديد اختياري (الفارغ يُبقي الحالي)
-  gmEdit: d => { UI.gmEditFor = d.id; const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml(); },
+  gmEdit: d => { UI.gmEditFor = d.id; const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml(); },
   gmEditSave: d => {
     const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return toast('ولي الأمر غير موجود');
     const name = (((document.querySelector('#geName')) || {}).value || '').trim().slice(0, 40);
@@ -5553,7 +5557,7 @@ const ACT = {
       a.pin = h;
     }
     a.name = name; a.email = email; UI.gmEditFor = null; save(); toast('تم الحفظ ✅');
-    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+    const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml();
   },
   // حذف ولي أمر: تُلغى صلاحياته ورمزه، وتبقى أسماء أطفاله كما هي
   linkAdd: () => {
@@ -5580,7 +5584,7 @@ const ACT = {
     const a = agents().find(x => x.id === d.id && isGuardian(x)); if (!a) return;
     if (!(await confirmBox('حذف ولي الأمر ' + esc(a.name) + '؟', 'تُلغى صلاحياته ورمزه، وتبقى الأطفال كما هم.'))) return;
     S.settings.agents = agents().filter(x => x.id !== d.id); save(); toast('حُذف ولي الأمر');
-    const sec = document.querySelector('.setsec[data-s="users"]'); if (sec) sec.innerHTML = userRecordHtml();
+    const sec = document.querySelector('#userRecBox'); if (sec) sec.innerHTML = userRecordHtml();
   },
   agentAdd: d => {
     if (!S.settings.pin) return toast('أنشئي رمز المدير أولاً');
