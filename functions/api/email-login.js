@@ -52,7 +52,11 @@ async function sendCode(env, to, code) {
       html: `<div dir="rtl" style="font-family:sans-serif"><p>رمز الدخول:</p><p style="font-size:28px;letter-spacing:6px"><b>${code}</b></p><p>صالح لمدة 10 دقائق. إن لم تطلبي الرمز فتجاهليه.</p></div>`
     })
   });
-  if (!r.ok) { const e = new Error('mail-send'); e.status = 502; throw e; }
+  if (!r.ok) {
+    // سبب الرفض من Resend (مثل: الدومين غير مُتحقق منه في MAIL_FROM) يظهر في سجلات Cloudflare فقط، لا للمستخدم
+    console.error('resend-failed', r.status, (await r.text()).slice(0, 300));
+    const e = new Error('mail-send'); e.status = 502; throw e;
+  }
 }
 
 // الأغراض: login (دخول ولي الأمر بالبريد، ويُنشأ حسابه إن كان البريد جديداً)، register (تسجيل قديم)
