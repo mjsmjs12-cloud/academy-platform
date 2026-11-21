@@ -2428,13 +2428,7 @@ function renderAdminHome(){
     ${tile('words', '', '📚', 'المحتوى', 'الكلمات والأذكار والقصص والفيديو')}
     ${tile('print', '', '🖨️', 'الطباعة', 'طباعة التقارير والشهادات')}
   </div>
-  <h4 class="grp">👑 الإدارة</h4>
-  <div class="set-grid">
-    ${tile('settings', 'security', '🔐', 'الأمان ورمز المدير', 'رمز الدخول واسم مدير النظام')}
-    ${tile('settings', 'agents', '👥', 'الوكلاء وصلاحياتهم', 'إنشاء الوكلاء وتحديد صلاحياتهم')}
-    ${tile('settings', 'backup', '💾', 'النسخ الاحتياطي والمزامنة', 'رابط الدخول من الأجهزة')}
-    ${tile('settings', 'display', '⚙️', 'الإعدادات العامة', 'المظهر والصوت والقرآن والتذكير')}
-  </div>`;
+  ${SETTINGS_GROUPS.map(([gname, keys]) => `<h4 class="grp">${gname}</h4><div class="set-grid">${keys.map(k => { const pg = SETTINGS_PAGES.find(x => x[0] === k); return tile('settings', pg[0], pg[1], pg[2], pg[3]); }).join('')}</div>`).join('')}`;
 }
 function renderHome(){
   stopQuranAudio();
@@ -4085,8 +4079,8 @@ const SETTINGS_PAGES = [
 ];
 // مجموعات الصفحة الرئيسية للإعدادات حسب الدور
 const SETTINGS_GROUPS = [
-  ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']],
-  ['👑 إدارة مدير النظام', ['security','agents','users','chat','backup']]
+  ['👑 إدارة مدير النظام', ['security','agents','users','chat','backup']],
+  ['🏠 تخصيص البرنامج', ['display','voice','quran','health','about']]
 ];
 const PARENT = {
   // لوحة تحكم ولي الأمر: ملخص كل طفل مسندة إليه، مع الوصول إلى تقريرها الكامل
