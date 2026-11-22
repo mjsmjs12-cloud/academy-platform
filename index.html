@@ -952,8 +952,10 @@ async function joinWithCode(code){
   startCloudPolling();
 }
 // شاشة الدخول للجهاز غير المرتبط: خانة رمز الدخول للموقع
+// مفتاح إظهار بطاقة «دخول الجهاز لأول مرة»: معطّل، ويُفتح الموقع من الرابط مباشرة دون رمز
+const JOIN_BOX_ON = false;
 function joinBoxHtml(){
-  if (S.cloud && S.cloud.f) return '';
+  if (!JOIN_BOX_ON || (S.cloud && S.cloud.f)) return '';
   return `<div class="card" style="max-width:420px;margin:12px auto">
     <h3>🔗 دخول الجهاز لأول مرة</h3>
     <p class="muted" style="font-size:13px">اكتبي رمز الدخول الذي أعطاكِ إياه مدير النظام. يُكتب مرة واحدة على كل جهاز.</p>
