@@ -1946,11 +1946,11 @@ function kidSecHtml(c, sec){
       <div class="row">${avatar(c, 70)}<label class="btn sm ghost">📷 ${c.photo ? 'تغيير الصورة' : 'إضافة صورة'}<input type="file" accept="image/*" data-change="kidPhoto" data-id="${id}" style="display:none"></label>${c.photo ? `<button class="btn sm ghost" data-act="delPhoto" data-id="${id}">🗑️ حذف الصورة</button>` : ''}<span class="muted">تظهر في المسابقات والشهادات، وتبقى على هذا الجهاز فقط.</span></div>
       <div class="grid2" style="margin-top:8px">
         <div><label class="f">الاسم</label><input id="kn_${id}" value="${esc(c.name)}"></div>
-        <div><label class="f">الجنس</label><select id="kgen_${id}"><option value="f" ${isBoy(c) ? '' : 'selected'}>طفل</option><option value="m" ${isBoy(c) ? 'selected' : ''}>ولد</option></select></div>
+        <div><label class="f">الجنس</label><select id="kgen_${id}"><option value="f" ${isBoy(c) ? '' : 'selected'}>أنثى</option><option value="m" ${isBoy(c) ? 'selected' : ''}>ولد</option></select></div>
         <div><label class="f">الرمز</label><input id="ke_${id}" value="${esc(c.emoji)}"></div>
         <div><label class="f">العمر</label><input type="number" id="kage_${id}" min="3" max="18" value="${c.age || ''}"></div>
         <div><label class="f">لون الطفل</label><input type="color" id="kc_${id}" value="${esc(c.color)}" style="height:46px"></div>
-        <div><label class="f">🔑 رمز دخول الطفل (4 أرقام أو أكثر)</label><input type="password" inputmode="numeric" id="kcode_${id}" placeholder="${c.code ? 'تم تعيين رمز، اكتبي رمزاً جديداً للتغيير' : 'اكتبي الرمز'}"></div>
+        <div><label class="f">🔑 رمز دخول الطفل (4 أرقام أو أكثر)</label><input type="password" inputmode="numeric" id="kcode_${id}" autocomplete="new-password" placeholder="${c.code ? 'تم تعيين رمز، اكتبي رمزاً جديداً للتغيير' : 'اكتبي الرمز'}"></div>
         <div><label class="f">📧 بريد الطفل (للدخول بالبريد)</label><input type="email" id="kemail_${id}" value="${esc(c.email || '')}" placeholder="name@example.com"></div>
         <div><label class="f">المستوى</label><select id="klev_${id}" data-change="levelPick">${LEVEL_LABELS5.map((l, i) => { const locked = i + 1 > levelRaw(c) && !levelOpen(c, i + 1); return `<option value="${i + 1}" ${levelRaw(c) === i + 1 ? 'selected' : ''} ${locked ? 'disabled' : ''}>${l} (حتى ${fmt(LEVEL_MATH[i])})${locked ? ' 🔒' : ''}</option>`; }).join('')}</select></div>
         <div><label class="f">مدة الجلسة (دقيقة)</label><select id="km_${id}">${[0, 10, 15, 20, 25, 30, 40, 45].map(v => `<option value="${v}" ${c.minutes === v ? 'selected' : ''}>${v ? v + ' دقيقة' : 'مفتوح (بدون وقت)'}</option>`).join('')}</select></div>
@@ -2543,7 +2543,7 @@ function renderAdminLogin(){
   <div class="card" style="max-width:420px;margin:12px auto">
     <p class="muted" style="font-size:13px">${S.settings.pin ? 'اسم مدير النظام ورمزه الخاص' : 'أول مرة: اكتبي اسم مدير النظام ورمزاً خاصاً لإنشاء الحساب'}</p>
     <label class="f">اسم مدير النظام</label><input id="aname" autocomplete="off" value="${esc(S.settings.adminName || '')}">
-    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="acode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="acode" type="password" inputmode="numeric" autocomplete="new-password" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn" data-act="adminLogin">${S.settings.pin ? '🔓 دخول المدير' : '➕ إنشاء الحساب'}</button>${S.settings.pin ? '<button class="btn ghost sm" data-act="recoverAdmin">نسيت الرمز؟</button>' : ''}</div>
     <p id="amsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
   </div>
@@ -2557,7 +2557,7 @@ function renderLogin(){
   ${joinBoxHtml()}
   <div class="card" style="max-width:420px;margin:12px auto">
     <label class="f">اسمك الأول</label><input id="lname" autocomplete="off" placeholder="اسمك الأول كما هو في ملفك">
-    <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+    <label class="f" style="margin-top:8px">الرمز الخاص بك</label><input id="lcode" type="password" inputmode="numeric" autocomplete="new-password" placeholder="الرمز">
     <div class="row center" style="margin-top:12px"><button class="btn ok" data-act="kidLogin">🔓 دخول</button></div>
     <p id="lmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
     <div id="frozenBox"></div>
@@ -2568,7 +2568,7 @@ function renderLogin(){
     <div class="row center"><button class="btn ghost" data-act="codeToggle">🔑 دخول بالكود</button></div>
     <div id="codeBox" hidden style="margin-top:10px">
       <label class="f">اسم ولي الأمر</label><input id="gname" autocomplete="off">
-      <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="gcode" type="password" inputmode="numeric" autocomplete="off" placeholder="الرمز">
+      <label class="f" style="margin-top:8px">الرمز الخاص</label><input id="gcode" type="password" inputmode="numeric" autocomplete="new-password" placeholder="الرمز">
       <div class="row center" style="margin-top:12px;gap:6px;flex-wrap:wrap"><button class="btn ok" data-act="guardianAccountLogin">🔓 دخول</button>${S.settings.guardReg === 'on' ? '<button class="btn ghost" data-act="guardCodeNew">➕ مستخدم جديد</button>' : ''}</div>
       <p class="center" style="margin-top:6px"><button class="btn ghost sm" data-act="guardForgot">🔁 نسيت الرمز؟ استعادته بالبريد</button></p>
       <p id="gmsg" class="muted center" style="min-height:22px;margin-top:8px"></p>
@@ -3878,7 +3878,7 @@ function userRecordHtml(){
     <div class="card" style="margin-top:0"><h4>➕ إضافة ولي أمر يدوياً</h4>
       <label class="f">الاسم</label><input id="gmName" maxlength="40" placeholder="اسم ولي الأمر">
       <label class="f" style="margin-top:6px">البريد الإلكتروني (اختياري)</label><input id="gmEmail" type="email" inputmode="email" placeholder="name@example.com">
-      <label class="f" style="margin-top:6px">الرمز الخاص (4 أرقام على الأقل)</label><input id="gmCode" type="password" inputmode="numeric" autocomplete="off">
+      <label class="f" style="margin-top:6px">الرمز الخاص (4 أرقام على الأقل)</label><input id="gmCode" type="password" inputmode="numeric" autocomplete="new-password">
       <div class="row" style="margin-top:8px"><button class="btn ok sm" data-act="guardManualAdd">💾 إضافة ولي الأمر</button></div></div>
     <h4>أولياء الأمور وعدد أطفالهم</h4>
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>البريد</th><th>الأطفال</th><th>الحالة</th><th>أسماء الأطفال</th><th>الإجراءات</th></tr>${gRows || '<tr><td colspan="6" class="muted">لا يوجد أولياء أمور بعد</td></tr>'}</table></div>
@@ -4036,7 +4036,7 @@ function renderGuardianHome(){
   ${a && !a.parentId ? subsHtml(a) : ''}
   ${!a || !a.perms.includes('kids') || a.parentId ? '' : !a.emailOk ? '<p class="muted center" style="margin-top:8px">لإضافة الأطفال فعّلي بريدك أولاً: سجّلي الدخول بالبريد واكتبي الرمز المرسل إليه.</p>' : UI.gAddKid ? `<div class="card"><h3>➕ إضافة طفل</h3>
     <label class="f">اسم الطفل</label><input id="gkName" autocomplete="off">
-    <label class="f" style="margin-top:8px">رمز دخوله (4 أرقام أو أكثر)</label><input id="gkCode" type="password" inputmode="numeric" autocomplete="off">
+    <label class="f" style="margin-top:8px">رمز دخوله (4 أرقام أو أكثر)</label><input id="gkCode" type="password" inputmode="numeric" autocomplete="new-password">
     <div class="row" style="gap:6px;margin-top:10px"><button class="btn ok sm" data-act="gAddKidSave">💾 حفظ</button><button class="btn ghost sm" data-act="gAddKidCancel">إلغاء</button></div></div>`
     : '<div class="row center" style="margin-top:8px"><button class="btn ghost" data-act="gAddKidOpen">➕ إضافة طفل</button></div>'}
   <div class="row center" style="margin-top:8px"><button class="btn ghost sm" data-act="guardLogout">🚪 خروج</button></div>`;
@@ -4076,8 +4076,8 @@ function renderGuardianSettings(){
   view().innerHTML = `
   <div class="row between"><button class="btn ghost sm" data-act="back">→ رجوع</button><h2>⚙️ إعداداتي</h2></div>
   <div class="card"><h3>👤 حسابي</h3><p class="muted">الاسم: <b>${esc(a.name)}</b></p>
-    <label class="f">رمز دخولي الجديد (4 أرقام أو أكثر)</label><input id="gNewPin" type="password" inputmode="numeric" autocomplete="off">
-    <label class="f" style="margin-top:8px">أعيدي كتابة الرمز</label><input id="gNewPin2" type="password" inputmode="numeric" autocomplete="off">
+    <label class="f">رمز دخولي الجديد (4 أرقام أو أكثر)</label><input id="gNewPin" type="password" inputmode="numeric" autocomplete="new-password">
+    <label class="f" style="margin-top:8px">أعيدي كتابة الرمز</label><input id="gNewPin2" type="password" inputmode="numeric" autocomplete="new-password">
     <div class="row" style="margin-top:10px"><button class="btn ok" data-act="guardSavePin">💾 حفظ الرمز</button></div>
   </div>`;
 }
