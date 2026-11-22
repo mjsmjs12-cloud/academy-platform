@@ -924,6 +924,21 @@ function cloudErrText(e){
   if (e && e.status) return (e.message || 'خطأ في الخادم') + ' (رمز ' + e.status + ')';
   return e && e.message ? e.message : 'سبب غير معروف';
 }
+// جهاز غير مرتبط: يبحث الخادم عن العائلة بالرمز، ثم تُحمَّل بياناتها وتُربط بالجهاز. يُرجع نص الخطأ أو null عند النجاح
+async function loadByCode(code){
+  let r;
+  try { r = await fetch(CLOUD_API + '?lookup=' + encodeURIComponent(hashPin(code))); }
+  catch (e) { return 'تعذّر الاتصال بالخادم'; }
+  if (!r.ok) { const d = await r.json().catch(() => ({})); return d.error || 'تعذّر التحقق من الرمز'; }
+  const { f } = await r.json();
+  const d = await fetch(CLOUD_API + '?f=' + encodeURIComponent(f));
+  if (!d.ok) return 'تعذّر تحميل بيانات الأكاديمية';
+  const data = migrate(JSON.parse(await d.text()));
+  data.cloud = { f };
+  S = data; persistNow(JSON.stringify(S)); setCloudV(data._v || 0, f); CLOUD_SNAP = cloudSnapshot();
+  startCloudPolling();
+  return null;
+}
 // إن كان في الرابط معرّف عائلة تُحمَّل البيانات منه؛ يُرجع البيانات أو false
 async function cloudPullFromLink(){
   const f = new URLSearchParams(location.search).get('f');
@@ -4978,6 +4993,8 @@ const ACT = {
     const msg = $('#lmsg'), name = normName(($('#lname') || {}).value), code = (($('#lcode') || {}).value || '').trim();
     if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
     if (!name || !code) { msg.textContent = 'أدخلي الاسم والرمز'; return; }
+    // جهاز غير مرتبط: نبحث عن العائلة بالرمز أولاً، ثم نعيد الدخول بالبيانات المحمّلة
+    if (!S.cloud || !S.cloud.f) { msg.textContent = 'جارٍ التحقق...'; loadByCode(code).then(err => err ? (msg.textContent = err) : ACT.kidLogin()); return; }
     const c = S.children.find(k => normName(k.name) === name || normName((k.name || '').split(/\s+/)[0]) === name);
     // الرمز يُحفظ مجزّأً (hashPin) كرمز ولي الأمر، ولا يُخزَّن كما هو
     if (!c || !c.code || c.code !== hashPin(code)) {
@@ -5052,6 +5069,7 @@ const ACT = {
     const msg = $('#gmsg'), code = (($('#acodeIn') || {}).value || '').trim().toUpperCase();
     if (UI.lockUntil > Date.now()) { msg.textContent = 'انتظري قليلاً ثم حاولي مرة أخرى'; return; }
     if (!code) { msg.textContent = 'أدخلي الكود'; return; }
+    if (!S.cloud || !S.cloud.f) { msg.textContent = 'جارٍ التحقق...'; loadByCode(code).then(err => err ? (msg.textContent = err) : ACT.accessCodeLogin()); return; }
     const h = hashPin(code), a = agents().find(x => x.codeHash === h);
     if (!a) {
       UI.loginFails = (UI.loginFails || 0) + 1;

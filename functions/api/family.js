@@ -9,6 +9,11 @@ const VOICE_RE = /^chat_[a-z0-9]{1,20}$/;  // مفتاح الرسالة الصو
 const VOICE_MAX = 400 * 1024;              // حد الصوت بعد ترميزه Base64 (نحو 30 ثانية)
 const VOICE_TTL = 48 * 60 * 60;            // ثوانٍ: الصوت يُحذف بعد 48 ساعة، كنص التعميم والرسائل
 
+// فهرس الرموز: الجهاز غير المرتبط يبحث بالرمز عن العائلة (لا يُرجع إلا معرّف العائلة)
+const CODE_RE = /^h0:[a-f0-9]{16}$/;       // الرمز كما يُخزَّن مجزّأً على الجهاز (hashPin)
+const LOOKUP_MAX = 10;                     // أقصى عدد محاولات بحث لكل عنوان IP
+const LOOKUP_WINDOW = 15 * 60;             // ثوانٍ: مدة نافذة المحاولات
+
 const JSON_TYPE = 'application/json; charset=utf-8';
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': JSON_TYPE } });
 // رد خام بنص JSON المخزَّن كما هو، بدون تخزين مؤقت
@@ -28,6 +33,31 @@ async function kv(cfg, path, method, body) {
   const r = await fetch(cfg.url + path, { method, headers: { Authorization: 'Bearer ' + cfg.token }, body });
   if (!r.ok) throw new Error('kv ' + r.status);
   return r.json();
+}
+
+// البحث بالرمز من جهاز غير مرتبط: يُرجع معرّف العائلة فقط، ومحاولات محدودة لكل عنوان
+async function lookupFamily(request, cfg, code) {
+  if (request.method !== 'GET') return methodNotAllowed();
+  if (!CODE_RE.test(code)) return json({ error: 'رمز غير صالح' }, 400);
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const rl = 'rl:lookup:' + ip;
+  // عدّاد المحاولات: أول محاولة في النافذة تضبط مدة انتهائه
+  const n = await kv(cfg, '/', 'POST', JSON.stringify(['INCR', rl]));
+  if (n.result === 1) await kv(cfg, '/', 'POST', JSON.stringify(['EXPIRE', rl, LOOKUP_WINDOW]));
+  if (n.result > LOOKUP_MAX) return json({ error: 'محاولات كثيرة، حاولي بعد 15 دقيقة' }, 429);
+  const out = await kv(cfg, '/get/' + encodeURIComponent('idx:' + code), 'GET');
+  if (out.result === null || out.result === undefined) return json({ error: 'الرمز غير موجود، تأكدي منه أو راجعي مدير النظام' }, 404);
+  return json({ f: out.result });
+}
+
+// تحديث الفهرس بعد كل حفظ: كل رمز طفل أو وكيل يشير إلى العائلة. الفهرس قد يحوي رموزاً قديمة، والجهاز يتحقق من الاسم والرمز بنفسه
+async function indexCodes(cfg, f, data) {
+  const codes = [
+    ...(data.children || []).map(c => c && c.code),
+    ...((data.settings && Array.isArray(data.settings.agents)) ? data.settings.agents.map(a => a && a.codeHash) : []),
+  ].filter(x => typeof x === 'string' && CODE_RE.test(x));
+  if (!codes.length) return;
+  await kv(cfg, '/pipeline', 'POST', JSON.stringify(codes.map(h => ['SET', 'idx:' + h, f])));
 }
 
 // تخزين صوت رسالة واحدة (v) ضمن العائلة نفسها، ويُحذف تلقائياً بعد VOICE_TTL
@@ -64,6 +94,11 @@ export async function onRequest(context) {
   }
 
   const url = new URL(request.url);
+  const lookupCode = url.searchParams.get('lookup');
+  if (lookupCode !== null) {
+    try { return await lookupFamily(request, cfg, String(lookupCode)); }
+    catch (e) { return json({ error: 'خطأ في الخادم' }, 500); }
+  }
   const f = String(url.searchParams.get('f') || '');
   if (!FAMILY_RE.test(f)) return json({ error: 'رابط غير صالح' }, 400);
   const vk = String(url.searchParams.get('v') || '');
@@ -84,6 +119,7 @@ export async function onRequest(context) {
       try { parsed = JSON.parse(text); } catch (e) { return json({ error: 'بيانات غير صالحة' }, 400); }
       if (!parsed || !Array.isArray(parsed.children)) return json({ error: 'بيانات غير صالحة' }, 400);
       await kv(cfg, '/set/' + key, 'POST', text);
+      await indexCodes(cfg, f, parsed);
       return json({ ok: true });
     }
     return methodNotAllowed();
