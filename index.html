@@ -517,7 +517,7 @@ function newChild(id, name, emoji, color){ return {id, name, emoji, color, theme
 function defaultState(){
   // الدخول بالبريد مفعّل افتراضياً، ويمكن للمدير تغييره من الإعدادات (مفعّلة / مخفية / ملغاة)
   return {version:2, settings:{pin:'', rate:0.85, digits:'western', theme:'#e75a8c', hl:'#2563eb', hlOn:true, emailLogin:'on'},
-    children:[newChild('rima','ريما','🌷','#e75a8c'), newChild('yamama','يمامة','🕊️','#b05cc8')],
+    children:[], // لا أطفال تلقائياً: يُضاف كل طفل يدوياً من مدير النظام
     words:defaultWords(), notes:[], progress:{}, comps:[], kcontent:[], yt:[], adhkar:DEFAULT_ADHKAR.map(a => ({id:uid(), ...a, visible:true, approved:false})), quranApproved:[]};
 }
 // نسخة احتياطية تلقائية قبل كل تحديث للتطبيق، ونستعيدها إن تعذّرت قراءة البيانات
@@ -1962,7 +1962,7 @@ function kidSecHtml(c, sec){
         ${extPlatforms().map(([pid, title]) => `<label class="chk"><input type="checkbox" id="kext_${pid}_${id}" ${extHidden(c, pid) ? '' : 'checked'}> 🌐 إظهار بطاقة «${title}» في شاشته الرئيسية</label>`).join('')}
         
       </div>
-      <div class="row" style="margin-top:12px">${S.children.length > 1 ? `<button class="btn sm danger" data-act="delKid" data-id="${id}">حذف الملف</button>` : ''}</div>${save}</div>`;
+      <div class="row" style="margin-top:12px">${S.children.length >= 1 ? `<button class="btn sm danger" data-act="delKid" data-id="${id}">حذف الملف</button>` : ''}</div>${save}</div>`;
 }
 function skillAllowed(c, s){
   if (!skillEnabled(c, s)) return false;
@@ -3995,7 +3995,7 @@ function restoreSession(){
 function enterParent(role, agent){
   UI.parentOk = true; UI.parentRole = role; UI.agentId = agent ? agent.id : null;
   UI.kid = null; NAV.length = 0; CUR = null; UI.ptab = 'dash'; armParentTimer();
-  if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0].id;
+  if (!UI.pchild || !CH(UI.pchild)) UI.pchild = S.children[0] ? S.children[0].id : null;
   go(role === 'admin' ? renderAdminHome : renderGuardianHome);
   setTimeout(notifyParentAlerts, 500); // تنبيه عام: أطفال يحتاجون متابعة، عند فتح اللوحة
 }
@@ -5935,7 +5935,7 @@ const ACT = {
   delKid: async d => {
     if (!(await confirmBox('حذف ملف ' + esc(CH(d.id).name) + '؟', 'سيُحذف كل تقدمها. ستُصدَّر نسخة احتياطية أولاً.'))) return;
     exportBackup(); (CH(d.id).pages || []).forEach(p => idbDel('page_' + p.id).catch(() => {})); S.children = S.children.filter(c => c.id !== d.id); delete S.progress[d.id]; S.notes = S.notes.filter(n => n.cid !== d.id);
-    S.words.forEach(w => { w.kids = (w.kids || []).filter(k => k !== d.id); }); agents().forEach(a => { a.kids = a.kids.filter(k => k !== d.id); }); UI.pchild = S.children[0].id; save(); renderParent();
+    S.words.forEach(w => { w.kids = (w.kids || []).filter(k => k !== d.id); }); agents().forEach(a => { a.kids = a.kids.filter(k => k !== d.id); }); UI.pchild = S.children[0] ? S.children[0].id : null; save(); renderParent();
   },
   saveSettings: () => { savePinFromForm(); S.settings.daysVideos = ((($('#gdaysvid') || {value:''}).value) || '').split(/[\s,]+/).map(t => extractYouTubeId(t) || (/^[A-Za-z0-9_-]{11}$/.test(t) ? t : null)).filter((v, i, arr) => v && arr.indexOf(v) === i); delete S.settings.daysVideo;
     const qp = $('#gqrep'), qn = $('#gqnight');
@@ -6021,7 +6021,7 @@ const ACT = {
     localStorage.removeItem(DRIVE_KEY); renderParent(); toast('أُوقفت المزامنة');
   },
   resetChild: async () => { const c = CH(UI.pchild); if (!(await confirmBox('تصفير تقدم ' + esc(c.name) + '؟', 'تُحذف الجلسات والنجوم والنتائج. تبقى الكلمات والإعدادات.'))) return; exportBackup(); delete S.progress[c.id]; save(); renderParent(); toast('تم التصفير'); },
-  resetAll: async () => { if (!(await confirmBox('تصفير كل البيانات؟', 'يعود البرنامج إلى حالته الأولى.'))) return; exportBackup(); S = defaultState(); applyTheme(); UI.pchild = S.children[0].id; save(); renderParent(); toast('تم التصفير'); }
+  resetAll: async () => { if (!(await confirmBox('تصفير كل البيانات؟', 'يعود البرنامج إلى حالته الأولى.'))) return; exportBackup(); S = defaultState(); applyTheme(); UI.pchild = S.children[0] ? S.children[0].id : null; save(); renderParent(); toast('تم التصفير'); }
 };
 const CHANGE = {
   labelSet: t => { S.settings.labels = S.settings.labels || {}; const v = (t.value || '').trim(); if (v) S.settings.labels[t.dataset.k] = v; else delete S.settings.labels[t.dataset.k]; save(); renderParent(); },
@@ -6144,7 +6144,7 @@ const CHANGE = {
         if (!(await confirmBox('استعادة النسخة؟', 'ستُستبدل البيانات الحالية بالكامل.'))) return;
         S = migrate(st);
         for (const [k, v] of Object.entries(media)) { try { await idbPut(k, await dataURLToBlob(v)); } catch (e) {} }
-        applyTheme(); UI.pchild = S.children[0].id; save(); renderParent();
+        applyTheme(); UI.pchild = S.children[0] ? S.children[0].id : null; save(); renderParent();
         toast(`تمت الاستعادة${Object.keys(media).length ? ` مع ${Object.keys(media).length} ملف` : ''}`);
       } catch (e) { toast(e && e.message === 'newer' ? 'هذه النسخة من إصدار أحدث من البرنامج' : e && e.name === 'OperationError' ? 'كلمة السر غير صحيحة' : 'الملف غير صالح'); }
     };
